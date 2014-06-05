@@ -68,18 +68,15 @@ class LogisticRegression(object):
         self.y_pred.name = 'Logistic regression hard-assignment output' 
 
         self.response =  T.ivector('Logistic regression response variable')
-        self.loss     = -T.mean(T.log(self.output)[T.arange(y.shape[0]), self.response])
+        self.loss     = -T.mean(T.log(self.output)[T.arange(self.response.shape[0]), self.response])
         self.loss.name= 'Negative loglikelihood loss'
         self.miss     =  T.mean(T.neq(self.y_pred, self.response))
         self.miss.name= 'Misclassification error'
     
 class HiddenLayer(object):
-    def __init__(self, rng, input, n_in, n_out, activation = T.tanh):
+    def __init__(self, input, n_in, n_out, activation, rng=None, weight_paths=None):
         """
-        Construct a hidden layer of a multilayer perceptron.
-        
-        rng:      numpy.Random.RandomState
-        random number generator for weight init
+        Construct a hidden layer of a neural network.
         
         input:    theano.tensor.matrix
         symbolic tensor of shape (n_examples, n_in)
@@ -92,21 +89,47 @@ class HiddenLayer(object):
         
         activation: theano.Op or function
         (non)linear activation function for hidden units
+
+        rng:      numpy.Random.RandomState
+        random number generator for weight init
+
+        weight_paths: list of strings
+        The first string should specify the path to the npy file where the W matrix located.
+        The second should specify the path to the npy file where the b vector is located.
+        None instead of a string skips that param. For instance:
+        ['/weights.npy', None]
+        Loads only the weight matrix and initializes the bias vector as normal.
         """
+        assert weight_paths is None or ( weight_paths is not None and len(weight_paths)==2 ), "If weight paths is specified it must be a list of length 2."
+
         self.n_in   = n_in
         self.n_out  = n_out
         self.input  = input
-        W_vals      = np.asarray(
-            rng.uniform(
-                low = -np.sqrt(6.0 / (n_in + n_out)),
-                high=  np.sqrt(6.0 / (n_in + n_out)),
-                size=(n_in, n_out)
-            ).astype(theano.config.floatX)
-        )
-        if activation == theano.tensor.nnet.sigmoid:
-            W_vals *= 4
-        self.W = theano.shared(W_vals, name='W')
-        self.b = theano.shared(np.zeros(n_out).astype(theano.config.floatX), name='b')
+
+        if weight_paths is None or (weight_paths is not None and weight_paths[0] is None):
+            W_val = np.asarray(
+                rng.uniform(
+                    low = -np.sqrt(6.0 / (n_in + n_out)),
+                    high=  np.sqrt(6.0 / (n_in + n_out)),
+                    size=(n_in, n_out)
+                ).astype(theano.config.floatX)
+            )
+            if activation == theano.tensor.nnet.sigmoid:
+                W_val *= 4
+        else: # use path provided
+            W_val = np.load(weight_paths[0])
+            assert W_val.dtype == theano.config.floatX
+            assert W_val.shape == (n_in, n_out)
+
+        if weight_paths is None or (weight_paths is not None and weight_paths[1] is None):
+            b_val = np.zeros((n_out,), dtype=theano.config.floatX)
+        else:
+            b_val = np.load(weight_paths[1])
+            assert b_val.dtype == theano.config.floatX
+            assert b_val.shape == (n_out, )
+         
+        self.W = theano.shared(W_val, name='W')
+        self.b = theano.shared(b_val, name='b')
         self.params = [self.W, self.b]
 
         self.output = activation(T.dot(input, self.W) + self.b)
@@ -116,7 +139,7 @@ class NeuralNetwork(object):
     """
     Create a symbolic (theano) Feed-forward neural net with a logistic or linear regressor on top for classification or regression.
     """
-    def __init__(self, rng, architecture, activation, output_layer_type):
+    def __init__(self, rng, architecture, activation, output_layer_type, hidden_weight_paths=None):
         """
         rng: numpy.random.RandomState
         A random number generator used to initialize weights
@@ -138,6 +161,14 @@ class NeuralNetwork(object):
         
         output_layer_type: string
         A string from mlp._ouputs(). This specifies the final output object of the network. In doing so, it also specifies the loss function. For instance if output_layer_type = 'LinearRegression', the output layer will have linear units and use mean squared error for the loss. 
+
+        hidden_weight_paths: list of lists
+        You can specify the values of hidden weights. This list should have as many elements as hidden layers, so:
+        len(hidden_weight_paths) == len(architecture)-2
+        Each element can be NoneType or a len 2 list specifying weight paths. See HiddenLayer weight_paths argument for more detail.
+        For instance:
+        hidden_weight_paths = [['/my_W_matrix.npy', None], None]
+        initializes the weight matrix (and not the bias) of the first hidden layer only for a Net with 2 hidden layers.
         """
         # Error checks
         assert len(architecture) > 2, 'arc should be greater than two for MLP'
@@ -148,6 +179,11 @@ class NeuralNetwork(object):
         else:
             activation = [activation] * (len(architecture) - 2)
         assert output_layer_type in OUTPUT_LAYER_TYPES, 'output should be one of %s' % str(OUTPUT_LAYER_TYPES)
+        if hidden_weight_paths is not None:
+            assert len(hidden_weight_paths) == len(architecture)-2, "weight path list be have as many elements as hidden layers"
+            # assert sum(map(len,hidden_weight_paths)) == 2*(len(architecture)-2), "Each element of weight paths must len 2 list. See HiddenLayer object."
+        else:
+            hidden_weight_paths = [None]*(len(architecture)-2)
         # End error checks
 
         self.rng                = rng
@@ -165,10 +201,11 @@ class NeuralNetwork(object):
             self.hidden_layer.append(
                 HiddenLayer(
                     rng         = rng,
-                    input       = self.input if h is 0 else self.hidden_layer[h-1].output,
+                    input       = self.input if h == 0 else self.hidden_layer[h-1].output,
                     n_in        = architecture[h],
                     n_out       = architecture[h+1],
-                    activation  = activation[h]
+                    activation  = activation[h],
+                    weight_paths= hidden_weight_paths[h]
                 )
             )
             self.params += self.hidden_layer[h].params
@@ -182,9 +219,23 @@ class NeuralNetwork(object):
         self.response= self.output_layer.response
         self.loss    = self.output_layer.loss
 
+    def load_training_set(self, input_path, response_path=None):
+        self.training_set = SharedDataSet( input_path=input_path,
+                                           response_path=response_path,
+                                           output_layer_type=self.output_layer_type
+                                         )
+    def load_validation_set(self, input_path, response_path=None):
+        self.validation_set = SharedDataSet( input_path=input_path,
+                                               response_path=response_path,
+                                               output_layer_type=self.output_layer_type
+                                              )
+
+    def load_testing_set(self, input_path, response_path=None):
+        self.testing_set = SharedDataSet( input_path=input_path,
+                                          response_path=response_path,
+                                          output_layer_type=self.output_layer_type
+                                        )
     def train(   self,
-                 train,
-                 valid, 
                  learning_rate         = 0.1,
                  n_epochs              = 10,
                  batch_size            = None,
@@ -199,11 +250,7 @@ class NeuralNetwork(object):
                  bootstrap             = False
         ):
         """
-        train: DataSet
-        DataSet object holding the training data.
-
-        valid: DataSet
-        DataSet object holding the validation data.
+        Train the network for a number of epochs (or use early variance stopping). Training and validation sets must be loaded by calling load_..._set(...)
 
         learning_rate: float
         step size of gradient descent
@@ -226,7 +273,7 @@ class NeuralNetwork(object):
         size of momentum coefficient. should be < 1
 
         rand_seed: int
-        seed for the random number generator. default None uses random rand_seed
+        seed for the random number generator if start_rand is True. default None uses random rand_seed
 
         start_rand: bool
         If true, the network parameters are set to random values before initializing. False (default) uses the current network param values as starting points.
@@ -247,18 +294,19 @@ class NeuralNetwork(object):
         if True, bootstrap (sub)samples are used for each minibatch of grad descent. Note that this method is slower.
         """
         opts = locals()
+        opts.pop('self')
         p = "\n"
         for key in opts:
             p += key+": "+str(opts[key])+"\n"
         
+        assert hasattr(self,'training_set') and hasattr(self,'validation_set'), "Testing or validation set not present. You must load both via the NeuralNetork object's load_..._set(...) methods."
+
         print ("\nBeginning new trial. Params:")
         print ( p )
 
         # Data formatting requirements are unique to the output layer type
-        batch_size          = train.N if batch_size is None else batch_size
-        n_train_batches     = int(np.floor(train.N / float(batch_size)))
-
-        print ("... Constructing model")
+        batch_size          = self.training_set.N if batch_size is None else batch_size
+        n_train_batches     = int(np.floor(self.training_set.N / float(batch_size)))
 
         if not bootstrap:
             index = T.lscalar('index')
@@ -269,6 +317,8 @@ class NeuralNetwork(object):
             print "... Randomizing network parameters"
             for param in self.params:
                 param.set_value( (np.random.random( param.get_value().shape )-0.5).astype( param.dtype ))
+
+        print "... Compiling"
 
         # Create symbolic cost function for gradient descent
         cost = self.loss
@@ -304,8 +354,8 @@ class NeuralNetwork(object):
                 outputs=cost,
                 updates=updates,
                 givens={
-                    self.input:    train.x[indexes],
-                    self.response: train.y[indexes]
+                    self.input:    self.training.x[indexes],
+                    self.response: self.training.y[indexes]
                 }
             )
         else:
@@ -314,8 +364,8 @@ class NeuralNetwork(object):
                 outputs=cost,
                 updates=updates,
                 givens={
-                    self.input:     train.x[index*batch_size:(index+1)*batch_size],
-                    self.response:  train.y[index*batch_size:(index+1)*batch_size]
+                    self.input:     self.training_set.x[index*batch_size:(index+1)*batch_size],
+                    self.response:  self.training_set.y[index*batch_size:(index+1)*batch_size]
                 }
             )
 
@@ -323,8 +373,8 @@ class NeuralNetwork(object):
             inputs=[],
             outputs=cost,
             givens={
-                self.input:     valid.x,
-                self.response:  valid.y
+                self.input:     self.validation_set.x,
+                self.response:  self.validation_set.y
             }
         )
 
@@ -341,7 +391,7 @@ class NeuralNetwork(object):
             
             if bootstrap:
                 for minibatch_index in xrange(n_train_batches):
-                    indices = np.random.randint(0, train.N, size=batch_size).astype(np.int32)
+                    indices = np.random.randint(0, self.training_set.N, size=batch_size).astype(np.int32)
                     tr_cost += train_model(indices) / n_train_batches
             else:
                 for minibatch_index in xrange(n_train_batches):
@@ -349,7 +399,7 @@ class NeuralNetwork(object):
 
             # record losses for epoch
             loss_records[epoch,0], loss_records[epoch,1] = tr_cost, va_cost
-            sys.stdout.write("Epoch: %d || Trloss: %f || VaLoss: %f\r"%(epoch+1, tr_cost, va_cost))
+            sys.stdout.write("Epoch: %d || TrCost: %f || VaCost: %f\r"%(epoch+1, tr_cost, va_cost))
             sys.stdout.flush()
             
             if va_cost < best_va_cost:
@@ -364,7 +414,7 @@ class NeuralNetwork(object):
             if use_early_stopping and \
                epoch > variance_window and \
                (np.var(loss_records[epoch-variance_window+1:epoch+1,0]) < variance_threshold or \
-               (loss_records[epoch-variance_window+1,1] - loss_records[-1,1]) / variance_window > 0.01 ):
+               False):#(loss_records[epoch-variance_window+1,1] - loss_records[-1,1]) / variance_window > 0.01 ):
                 print ("Variance threshold of validation record reached. Quitting.")
                 epoch +=1
                 break
@@ -381,11 +431,42 @@ class NeuralNetwork(object):
             'rate': epoch/(end_time-start_time),
             'loss': loss_records,
             'para': best_params,
+            'cost': cost, 
+            'opts': opts,
             'epoch':best_epoch
         }
 
         print ("\n\n... Training finished")
         print ("Running at ~ %f epochs / sec"%(epoch/(end_time-start_time)))
+
+    def test(self):
+        """Perform testing aftering having been trained."""
+        assert hasattr(self,'testing_set'), "You must load the testing set via NeuralNetwork.load_testing_set()"
+        assert hasattr(self, 'training_stats'), "Train before test!"
+        test_loss = theano.function(
+            inputs=[],
+            outputs=self.training_stats['cost'],
+            givens={
+                self.input:     self.testing_set.x,
+                self.response:  self.testing_set.y
+            }
+        )
+        self.testing_stats = dict()
+        self.testing_stats['loss'] = test_loss()
+        if self.output_layer_type == 'LogisticRegression':
+            test_miss = theano.function( 
+                inputs=[],
+                outputs=self.output_layer.miss,
+                givens={
+                    self.input:     self.testing_set.x,
+                    self.response:  self.testing_set.y
+                }
+            )
+            self.testing_stats['miss'] = test_miss()
+    def save_stats(self, save_path):
+        f=open(save_path,'wb')
+        cPickle.dump({'training_stats': self.training_stats, 'testing_stats': self.testing_stats}, f)
+        f.close()
 
     def __str__(self):
         s = str(self.n_layers) + ' layered MLP:\n'
@@ -399,10 +480,10 @@ class NeuralNetwork(object):
             s += ' => '
         return s + str(self.architecture[-1]) + 'out ( ' + self.output_layer_type + ' )'
 
-class DataSet(object):
+class SharedDataSet(object):
     def __init__(self, input_path, response_path=None, output_layer_type=None):
         """
-        DataSet objects are containers for holding information about sets for training mlps.
+        SharedDataSet objects are containers for holding information about sets for training mlps.
 
         Input and output paths should point to a *.npy file
         input_path: string
@@ -412,7 +493,7 @@ class DataSet(object):
         same as input_path but points to the datasets output (labels). If None, the input set is used for the output so that the network is trained in an unsupervised fashion.
 
         Example:
-        tr = DataSet(input_path='/mydata/x.npy', output_path='/mydata/y.npy')
+        tr = SharedDataSet(input_path='/mydata/x.npy', output_path='/mydata/y.npy')
         """
         assert output_layer_type is not None and output_layer_type in OUTPUT_LAYER_TYPES, "output_layer_type_must be specified"
         response_path  = input_path if response_path is None else response_path
@@ -423,8 +504,8 @@ class DataSet(object):
         self.N = self.x.get_value().shape[0]
         assert self.N == self.y.get_value().shape[0], "Shape mismatch in data set."
 
-        if output_layer_type is 'LogisticRegression':
+        if output_layer_type == 'LogisticRegression':
             self.y = T.cast( self.y, 'int32' )
-            assert self.y.ndim is 1, "Response variables should be contained in a one dimensional vector for Logistic Regression coded as unique integers per class label."
-        elif output_layer_type is 'LinearRegression':
-            assert self.y.ndim is 2, "Response variables should be contained in a matrix by row for Linear Regression"
+            assert self.y.ndim == 1, "Response variables should be contained in a one dimensional vector for Logistic Regression coded as unique integers per class label."
+        elif output_layer_type == 'LinearRegression':
+            assert self.y.ndim == 2, "Response variables should be contained in a matrix by row for Linear Regression"
