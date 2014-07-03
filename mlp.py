@@ -72,7 +72,7 @@ class LogisticRegression(object):
         self.loss.name= 'Negative loglikelihood loss'
         self.miss     =  T.mean(T.neq(self.y_pred, self.response))
         self.miss.name= 'Misclassification error'
-    
+
 class HiddenLayer(object):
     def __init__(self, input, n_in, n_out, activation, rng=None, weight_paths=None):
         """
@@ -247,7 +247,8 @@ class NeuralNetwork(object):
                  use_early_stopping    = False,
                  variance_window       = 20,
                  variance_threshold    = 1e-3,
-                 bootstrap             = False
+                 bootstrap             = False,
+                 callback              = None
         ):
         """
         Train the network for a number of epochs (or use early variance stopping). Training and validation sets must be loaded by calling load_..._set(...)
@@ -294,12 +295,15 @@ class NeuralNetwork(object):
         if True, bootstrap (sub)samples are used for each minibatch of grad descent. Note that this method is slower.
         """
         opts = locals()
-        opts.pop('self')
         p = "\n"
         for key in opts:
+            if opts[key] is None or opts[key] is False: continue
+            if (key == 'variance_window' or key == 'variance_threshold') and opts['use_early_stopping'] is False: continue
             p += key+": "+str(opts[key])+"\n"
+        opts.pop('self')
         
         assert hasattr(self,'training_set') and hasattr(self,'validation_set'), "Testing or validation set not present. You must load both via the NeuralNetork object's load_..._set(...) methods."
+        assert batch_size < self.training_set.N, "Batch size cannot be greater than size of training set."
 
         print ("\nBeginning new trial. Params:")
         print ( p )
@@ -369,25 +373,41 @@ class NeuralNetwork(object):
                 }
             )
 
-        validation_cost = theano.function(
-            inputs=[],
-            outputs=cost,
-            givens={
-                self.input:     self.validation_set.x,
-                self.response:  self.validation_set.y
-            }
-        )
+        if self.output_layer_type == 'LogisticRegression':
+            validation_cost_and_miss = theano.function(
+                inputs=[],
+                outputs=[cost,self.output_layer.miss],
+                givens={
+                    self.input:     self.validation_set.x,
+                    self.response:  self.validation_set.y
+                }
+            )
+        else:
+            validation_cost = theano.function(
+                inputs=[],
+                outputs=cost,
+                givens={
+                    self.input:     self.validation_set.x,
+                    self.response:  self.validation_set.y
+                }
+            )
 
         print ("... Beginning training\n")
         
         start_time = time.clock()
         best_params = [None]*len(self.params)
-        best_va_cost = np.inf
+        best_va = np.inf
+        va_miss = None
         epoch = 0
-        loss_records = np.zeros((n_epochs,2))
-
+        loss_records = np.zeros((n_epochs,3 if self.output_layer_type == 'LogisticRegression' else 2))
+        #from scipy.misc import imsave,imresize
+        #from image_from_weights import image_from_weights as ifw
         while epoch < n_epochs:
-            tr_cost, va_cost = 0., validation_cost()
+            tr_cost = 0.
+            if self.output_layer_type == 'LogisticRegression':
+                va_cost, va_miss = validation_cost_and_miss()
+            else:
+                va_cost = validation_cost()
             
             if bootstrap:
                 for minibatch_index in xrange(n_train_batches):
@@ -396,29 +416,49 @@ class NeuralNetwork(object):
             else:
                 for minibatch_index in xrange(n_train_batches):
                     tr_cost += train_model(minibatch_index) / n_train_batches
+            #if epoch%100 == 0:
+            #    imsave(
+            #        './W1/'+'0'*(6-len(str(epoch)))+str(epoch)+'.png',
+            #        imresize(ifw(self.params[0].get_value(),28,28,20,20), size=(700,700))
+            #    )
+            #    imsave(
+            #        './W2/'+'0'*(6-len(str(epoch)))+str(epoch)+'.png',
+            #        imresize(ifw(self.params[2].get_value(),20,20,10,10), size=(700,700))
+            #    )
 
             # record losses for epoch
             loss_records[epoch,0], loss_records[epoch,1] = tr_cost, va_cost
-            sys.stdout.write("Epoch: %d || TrCost: %f || VaCost: %f\r"%(epoch+1, tr_cost, va_cost))
+            if loss_records.shape[1]==3:
+                loss_records[epoch,2] = va_miss
+                sys.stdout.write(
+                    "Epoch: %d || TrCost: %f || VaCost: %f || VaMiss: %f\r"
+                    % (epoch+1, tr_cost, va_cost, va_miss)
+                )
+            else:
+                sys.stdout.write(
+                   "Epoch: %d || TrCost: %f || VaCost: %f\r"
+                    % (epoch+1, tr_cost, va_cost)
+                )
             sys.stdout.flush()
             
-            if va_cost < best_va_cost:
+            if (va_miss if self.output_layer_type=='LogisticRegression' else va_cost) < best_va:
                 # record new best
-                best_va_cost = va_cost
+                best_va = (va_miss if self.output_layer_type=='LogisticRegression' else va_cost) 
                 best_epoch = epoch
                 for i in xrange(len(self.params)):
                     best_params[i] = self.params[i].get_value().copy()
 
             # Early stopping condition:
             # If the variance in the validation curve has not changed significantly over the most recent variance window, then quit.
-            if use_early_stopping and \
-               epoch > variance_window and \
-               (np.var(loss_records[epoch-variance_window+1:epoch+1,0]) < variance_threshold or \
-               False):#(loss_records[epoch-variance_window+1,1] - loss_records[-1,1]) / variance_window > 0.01 ):
-                print ("Variance threshold of validation record reached. Quitting.")
-                epoch +=1
-                break
-            
+            if use_early_stopping and epoch > variance_window:
+                if np.var(loss_records[epoch-variance_window+1:epoch+1,0]) < variance_threshold:
+                    print ("Variance threshold of validation record reached. Quitting.")
+                    epoch +=1
+                    break
+
+            # call the call back
+            if callback is not None: callback(locals())
+
             epoch += 1
         end_time = time.clock()
 
@@ -463,7 +503,9 @@ class NeuralNetwork(object):
                 }
             )
             self.testing_stats['miss'] = test_miss()
-    def save_stats(self, save_path):
+    def save_stats(self, save_path=None):
+        if save_path is None:
+            save_path = self.__str__().replace(' ', '').replace('\n',' ')+'---'+str(uuid.uuid4())+'.dat'
         f=open(save_path,'wb')
         cPickle.dump({'training_stats': self.training_stats, 'testing_stats': self.testing_stats}, f)
         f.close()
