@@ -303,7 +303,7 @@ class NeuralNetwork(object):
         opts.pop('self')
         
         assert hasattr(self,'training_set') and hasattr(self,'validation_set'), "Testing or validation set not present. You must load both via the NeuralNetork object's load_..._set(...) methods."
-        assert batch_size < self.training_set.N, "Batch size cannot be greater than size of training set."
+        assert batch_size <= self.training_set.N, "Batch size cannot be greater than size of training set."
 
         print ("\nBeginning new trial. Params:")
         print ( p )
@@ -503,11 +503,20 @@ class NeuralNetwork(object):
                 }
             )
             self.testing_stats['miss'] = test_miss()
-    def save_stats(self, save_path=None):
+    def save_stats(self, save_path=None, prefix=None):
         if save_path is None:
             save_path = self.__str__().replace(' ', '').replace('\n',' ')+'---'+str(uuid.uuid4())+'.dat'
+        if prefix is not None:
+            save_path = prefix+save_path
+
+        assert hasattr(self,'training_stats'), "Train to get stats, then save."
+
         f=open(save_path,'wb')
-        cPickle.dump({'training_stats': self.training_stats, 'testing_stats': self.testing_stats}, f)
+        
+        if hasattr(self,'training_stats') and hasattr(self,'testing_stats'):
+            cPickle.dump({'training_stats': self.training_stats, 'testing_stats': self.testing_stats, 'arc': self.architecture, 'act': self.activation}, f)
+        else: # no testing stats
+            cPickle.dump({'training_stats': self.training_stats, 'arc': self.architecture, 'act': self.activation}, f)
         f.close()
 
     def __str__(self):
