@@ -394,14 +394,14 @@ class NeuralNetwork(object):
 
         print ("... Beginning training\n")
         
+        # setup variables before train loop
         start_time = time.clock()
         best_params = [None]*len(self.params)
         best_va = np.inf
         va_miss = None
         epoch = 0
         loss_records = np.zeros((n_epochs,3 if self.output_layer_type == 'LogisticRegression' else 2))
-        #from scipy.misc import imsave,imresize
-        #from image_from_weights import image_from_weights as ifw
+
         while epoch < n_epochs:
             tr_cost = 0.
             if self.output_layer_type == 'LogisticRegression':
@@ -416,15 +416,6 @@ class NeuralNetwork(object):
             else:
                 for minibatch_index in xrange(n_train_batches):
                     tr_cost += train_model(minibatch_index) / n_train_batches
-            #if epoch%100 == 0:
-            #    imsave(
-            #        './W1/'+'0'*(6-len(str(epoch)))+str(epoch)+'.png',
-            #        imresize(ifw(self.params[0].get_value(),28,28,20,20), size=(700,700))
-            #    )
-            #    imsave(
-            #        './W2/'+'0'*(6-len(str(epoch)))+str(epoch)+'.png',
-            #        imresize(ifw(self.params[2].get_value(),20,20,10,10), size=(700,700))
-            #    )
 
             # record losses for epoch
             loss_records[epoch,0], loss_records[epoch,1] = tr_cost, va_cost
@@ -550,11 +541,18 @@ class SharedDataSet(object):
         response_path  = input_path if response_path is None else response_path
         
         self.x = theano.shared(np.load( input_path )   , name = 'x')
-        self.y = theano.shared(np.load( response_path ), name = 'y')
+
+        y = np.load( response_path )
+        if y.ndim == 1 and output_layer_type == 'LinearRegression':
+            y = y[:,np.newaxis]
+            self.y = theano.shared(y, name = 'y')
+        elif output_layer_type == 'LogisticRegression':
+            self.y = theano.shared(np.load( response_path ), name = 'y')
+
 
         self.N = self.x.get_value().shape[0]
         assert self.N == self.y.get_value().shape[0], "Shape mismatch in data set."
-
+        
         if output_layer_type == 'LogisticRegression':
             self.y = T.cast( self.y, 'int32' )
             assert self.y.ndim == 1, "Response variables should be contained in a one dimensional vector for Logistic Regression coded as unique integers per class label."
