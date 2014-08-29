@@ -50,7 +50,7 @@ class LogisticRegression(object):
         n_out: int
         number of output units
         """
-        assert n_out > 1, "n_out should be at least 2 (this is binary classification!)."
+        assert n_out > 1, "n_out should be at least 2"
 
         self.n_in  = n_in
         self.n_out = n_out
@@ -139,11 +139,8 @@ class NeuralNetwork(object):
     """
     Create a symbolic (theano) Feed-forward neural net with a logistic or linear regressor on top for classification or regression.
     """
-    def __init__(self, rng, architecture, activation, output_layer_type, hidden_weight_paths=None):
+    def __init__(self, architecture, activation, output_layer_type, rng=np.random.RandomState(), hidden_weight_paths=None):
         """
-        rng: numpy.random.RandomState
-        A random number generator used to initialize weights
-        
         architecture: list
         list of ints describing the size of each layer and hence the arch(itecture) of the network. For instance:
         
@@ -161,6 +158,8 @@ class NeuralNetwork(object):
         
         output_layer_type: string
         A string from mlp._ouputs(). This specifies the final output object of the network. In doing so, it also specifies the loss function. For instance if output_layer_type = 'LinearRegression', the output layer will have linear units and use mean squared error for the loss. 
+
+        rng: numpy.random.RandomState
 
         hidden_weight_paths: list of lists
         You can specify the values of hidden weights. This list should have as many elements as hidden layers, so:
@@ -240,6 +239,9 @@ class NeuralNetwork(object):
                  n_epochs              = 10,
                  batch_size            = None,
                  L1_coef               = None,
+                 act_sparse_func       = None,
+                 act_sparse_list       = None,
+                 act_sparse_coef       = None,
                  L2_coef               = None,
                  momentum              = None,
                  rand_seed             = None,
@@ -265,10 +267,21 @@ class NeuralNetwork(object):
         the size of the training_set is used.
 
         L1_coef: float
-        amount of L1 regularization added to the cost function
+        amount of L1 regularization added weights 
+
+        act_sparse_func: theano op
+        Default None.
+
+        act_sparse_list: list of bools
+        list should be length #hidden layers + 1 for output.
+        Each item in the list is a bool specifying if the sparsity is
+        applied to the activation of units in that layer. Default: [True]*length
+
+        act_sparse_coef: float
+        amount of activation sparsity
 
         L2_coef: float
-        amount of L2 regularization added to the cost function
+        amount of L2 regularization added weights
 
         momentum: float
         size of momentum coefficient. should be < 1
@@ -294,6 +307,7 @@ class NeuralNetwork(object):
         bootstrap: bool
         if True, bootstrap (sub)samples are used for each minibatch of grad descent. Note that this method is slower.
         """
+        # print params
         opts = locals()
         p = "\n"
         for key in opts:
@@ -302,13 +316,20 @@ class NeuralNetwork(object):
             p += key+": "+str(opts[key])+"\n"
         opts.pop('self')
         
+
+        #################
+        # input checking
         assert hasattr(self,'training_set') and hasattr(self,'validation_set'), "Testing or validation set not present. You must load both via the NeuralNetork object's load_..._set(...) methods."
         assert batch_size <= self.training_set.N, "Batch size cannot be greater than size of training set."
+        if act_sparse_func is not None:
+            assert act_sparse_coef is not None, "activation sparsity coefficient must be set"
+            # check if list length matches
+            assert len(act_sparse_list) == len(self.architecture)-1
+        #################
 
         print ("\nBeginning new trial. Params:")
         print ( p )
 
-        # Data formatting requirements are unique to the output layer type
         batch_size          = self.training_set.N if batch_size is None else batch_size
         n_train_batches     = int(np.floor(self.training_set.N / float(batch_size)))
 
@@ -332,6 +353,12 @@ class NeuralNetwork(object):
         if L1_coef is not None:
             L1 = reduce(lambda a,b: a+b, map(T.sum, map(T.abs_, self.params)))
             cost += L1_coef*L1
+        if act_sparse_func is not None:
+            for i in range(len(act_sparse_list)-1):
+                if act_sparse_list[i]:
+                    cost += act_sparse_coef*act_sparse_func(self.hidden_layer[i].output).mean()
+            if act_sparse_list[-1]:
+                cost += act_sparse_coef*act_sparse_func(self.output).mean()
 
         # compute symbolic gradient of the cost with respect to params
         gparams = []
@@ -540,7 +567,7 @@ class SharedDataSet(object):
         assert output_layer_type is not None and output_layer_type in OUTPUT_LAYER_TYPES, "output_layer_type_must be specified"
         response_path  = input_path if response_path is None else response_path
         
-        self.x = theano.shared(np.load( input_path )   , name = 'x')
+        self.x = theano.shared(np.load( input_path ).astype(theano.config.floatX)   , name = 'x')
 
         y = np.load( response_path )
         if y.ndim == 1 and output_layer_type == 'LinearRegression':
