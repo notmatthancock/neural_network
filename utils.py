@@ -31,22 +31,19 @@ def activation_maximization(P,l,j,act_list):
     """
     activation_maximization finds a vector from the input space which maximizes the activation
     of the jth neuron in layer l of a network.
+    *Important*: l and j start at zero 
 
     P: list of ndarrays
     This should be from or formatted as the para attribute from the NeuralNetwork save_stats()
     dictionary.
 
     l: int
-    layer num > 0
 
     j: int
-    neuron num > 0
 
     act_list: list of ops
     """
-    assert l > 0, "layer 0 is the input layer."
     assert l < len(P)/2, "you've entered a layer greater than how many exist"
-    assert j > 0, "neuron 0 is the bias unit"
     assert j <= P[2*l].shape[1], "you've enter a neuron greater than how many exist"
     assert len(act_list) == len(P)/2
     

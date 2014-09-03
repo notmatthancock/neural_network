@@ -1,4 +1,4 @@
-# Multilayer Perceptron
+# Neural Network
 A flexible neural network class for creating networks with arbitrary feedfoward architecture and wide variety of parameters. You can specify any number of layers with any number units each layer fed through any non-linearity you'd like. The non-linearity may even be unit specific. More options include: L1 and L2 regularize, momentum, early-stopping using variance of loss records, minibatch size, and, bootstrapping minibatches.
 
 ## Supervised Learning
