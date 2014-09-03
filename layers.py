@@ -11,25 +11,6 @@ LAYER_TYPES = {'F': 'FullyConnectedLayer',
                'C': 'ConvolutionalLayer',
                'P': 'LpPoolingLayer'}
 
-# linear
-#       self.response   = T.matrix('Linear regression response variable')
-#       self.loss       = ((self.output-self.response)**2).mean() 
-#       self.loss.name  = 'MSE loss'
-
-# logistic
-#        assert n_out > 1, "n_out should be at least 2"
-#
-#
-#        self.y_pred = T.argmax( self.output, axis=1 )
-#        self.output.name = 'Logistic regression softmax output'
-#        self.y_pred.name = 'Logistic regression hard-assignment output' 
-#
-#        self.response =  T.ivector('Logistic regression response variable')
-#        self.loss     = -T.mean(T.log(self.output)[T.arange(self.response.shape[0]), self.response])
-#        self.loss.name= 'Negative loglikelihood loss'
-#        self.miss     =  T.mean(T.neq(self.y_pred, self.response))
-#        self.miss.name= 'Misclassification error'
-
 class FullyConnectedLayer(object):
     def __init__(self,
                  input,
@@ -78,6 +59,9 @@ class FullyConnectedLayer(object):
         self.n_in   = n_in
         self.n_out  = n_out
         self.input  = input
+
+        self.layer_type = 'F'
+
 
         # set weights
         if weight_paths is None or (weight_paths is not None and weight_paths[0] is None):

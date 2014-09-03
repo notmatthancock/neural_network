@@ -6,13 +6,13 @@ from .shared_data_set import SharedDataSet
 
 class NeuralNetwork(object):
     """
-    Create a symbolic Feed forward neural network with a logistic or linear regressor on top for classification or regression.
+    Parent class for creating a symbolic Feed forward neural network classifier or regressor.
     """
-    def __init__(self, architecture, type=None):
+    def __init__(self, architecture=None, layers=None, from_stats=None):
         """
         architecture: list of tuples 
 
-        Each item is of the form: (key, dict) which specifies architecture
+        Each item is of the form: (char, dict) which specifies architecture
         of each layer. The first item in each is one of LAYER_TYPES.keys()
         specifying the layer type. The second item must be a dictionary of
         args matching the call signature in the specified layer type with the
@@ -29,66 +29,61 @@ class NeuralNetwork(object):
         windows. Lastly, there is a fully connected layer with softmax output
         for logisitic regression.
 
-        type: 'Classifier' or 'Regressor'
-        this is set automatically if NeuralNetworkClassifier or NeuralNetworkRegressor is instantiated instead.
+        layers: list of layer objects
+        Alternatively, one may build a network by creating each layer individually from
+        the layers module and put them in a list sequentially.
+
+        from_stats: string
+        Lastly, one can rebuild a net object from the dictionary saved by the save_stats() function.
+        Here, the path of the pickled dict should be provided.
         """
         # one liner for checking each key corresponds to a valid type
-        assert sum(map(lambda l: l in LAYER_TYPES.keys(), [a[0] for a in architecture])) == len(architecture), \
-               "Invalid layer type key in architecture."
-        assert type is not None, "type must be set."
+        if architecture is not None:
+            assert sum(map(lambda l: l in LAYER_TYPES.keys(), [a[0] for a in architecture])) == len(architecture), \
+                   "Invalid layer type key in architecture."
+        elif layers is not None:
+            pass
+        elif from_stats is not None:
+            pass
+        else:
+            raise Exception('At least one input must be specified.')
 
         self.input              = T.matrix('Network input')
         self.architecture       = architecture
-        self.type               = type
-        self.n_layers           = len(architecture)+1
-        self.layer              = []
+        self.n_layers           = len(architecture)+1 # count the input layer
+        self.layers             = []
         self.params             = []
 
         for arc in self.architecture:
             # Append the correct input variable to the arg dict.
             arc[1].update(
-                [('input', self.input if len(self.layer)==0 else self.layer[-1].output)]
+                [('input', self.layer[-1].output)]
             )
             # Create a new instance of current layer type with given args
             # and append it to the layer list.
-            self.layer.append(  locals()[LAYER_TYPES[arc[0]]](**arc[1]) )
+            self.layers.append( locals()[LAYER_TYPES[arc[0]]](**arc[1]) )
             self.params.append( self.layer[-1].params )
 
         self.output = self.layer[-1].output
-#            input   = self.hidden_layer[-1].output,
-#            n_in    = self.hidden_layer[-1].n_out,
-#            n_out   = self.architecture[-1]
-#        )
-#        self.params += self.output_layer.params
-#        self.output  = self.output_layer.output
-#        self.response= self.output_layer.response
-#        self.loss    = self.output_layer.loss
 
+    def _load_data_set(self, input_path, response_path, name ):
+        setattr(self, name, SharedDataSet(input_path=input_path, response_path=response_path))
     def load_training_set(self, input_path, response_path=None):
-        self.training_set = SharedDataSet( input_path=input_path,
-                                           response_path=response_path,
-                                           output_layer_type=self.output_layer_type
-                                         )
+        self._load_data_set(input_path, response_path, 'training_set')
     def load_validation_set(self, input_path, response_path=None):
-        self.validation_set = SharedDataSet( input_path=input_path,
-                                               response_path=response_path,
-                                               output_layer_type=self.output_layer_type
-                                              )
-
+        self._load_data_set(input_path, response_path, 'validation_set')
     def load_testing_set(self, input_path, response_path=None):
-        self.testing_set = SharedDataSet( input_path=input_path,
-                                          response_path=response_path,
-                                          output_layer_type=self.output_layer_type
-                                        )
+        self._load_data_set(input_path, response_path, 'testing_set')
+
     def train(   self,
                  learning_rate         = 0.1,
                  n_epochs              = 10,
                  batch_size            = None,
                  L1_coef               = None,
+                 L2_coef               = None,
                  act_sparse_func       = None,
                  act_sparse_list       = None,
                  act_sparse_coef       = None,
-                 L2_coef               = None,
                  momentum              = None,
                  rand_seed             = None,
                  start_rand            = False,
@@ -165,10 +160,14 @@ class NeuralNetwork(object):
 
         #################
         # input checking
-        assert hasattr(self,'training_set') and hasattr(self,'validation_set'), "Testing or validation set not present. You must load both via the NeuralNetwork object's load_..._set(...) methods."
-        assert batch_size <= self.training_set.N, "Batch size cannot be greater than size of training set."
+        assert hasattr(self,'training_set') and hasattr(self,'validation_set'), \
+               "Testing or validation set not present. You must load both via the \
+               NeuralNetwork object's load_..._set(...) methods."
+        assert batch_size <= self.training_set.N, \
+               "Batch size cannot be greater than size of training set."
         if act_sparse_func is not None:
-            assert act_sparse_coef is not None, "activation sparsity coefficient must be set"
+            assert act_sparse_coef is not None, \
+                   "activation sparsity coefficient must be set"
             # check if list length matches
             assert len(act_sparse_list) == len(self.architecture)-1
         #################
@@ -179,10 +178,8 @@ class NeuralNetwork(object):
         batch_size          = self.training_set.N if batch_size is None else batch_size
         n_train_batches     = int(np.floor(self.training_set.N / float(batch_size)))
 
-        if not bootstrap:
-            index = T.lscalar('index')
-        else:
-            indexes = T.ivector('indexes')
+        if not bootstrap: index   = T.lscalar('index')
+        else:             indexes = T.ivector('indexes')
 
         if start_rand:
             print "... Randomizing network parameters"
@@ -191,7 +188,7 @@ class NeuralNetwork(object):
 
         print "... Compiling"
 
-        # Create symbolic cost function for gradient descent
+        # Add an extra terms to the loss function (regularizers, etc...)
         cost = self.loss
         if L2_coef is not None:
             L2 = reduce(lambda a,b: a+b, map(T.sum, map(lambda x: x**2, self.params)))
@@ -246,7 +243,8 @@ class NeuralNetwork(object):
                 }
             )
 
-        if self.output_layer_type == 'LogisticRegression':
+        has_miss = hasattr(self, miss)
+        if has_miss:
             validation_cost_and_miss = theano.function(
                 inputs=[],
                 outputs=[cost,self.output_layer.miss],
@@ -273,11 +271,11 @@ class NeuralNetwork(object):
         best_va = np.inf
         va_miss = None
         epoch = 0
-        loss_records = np.zeros((n_epochs,3 if self.output_layer_type == 'LogisticRegression' else 2))
+        loss_records = np.zeros((n_epochs, 3 if has_miss else 2))
 
         while epoch < n_epochs:
             tr_cost = 0.
-            if self.output_layer_type == 'LogisticRegression':
+            if has_miss:
                 va_cost, va_miss = validation_cost_and_miss()
             else:
                 va_cost = validation_cost()
@@ -305,9 +303,10 @@ class NeuralNetwork(object):
                 )
             sys.stdout.flush()
             
-            if (va_miss if self.output_layer_type=='LogisticRegression' else va_cost) < best_va:
+            # save on best missclass for classification and best cost for regression
+            if (va_miss if has_miss else va_cost) < best_va:
                 # record new best
-                best_va = (va_miss if self.output_layer_type=='LogisticRegression' else va_cost) 
+                best_va = (va_miss if has_miss else va_cost) 
                 best_epoch = epoch
                 for i in xrange(len(self.params)):
                     best_params[i] = self.params[i].get_value().copy()
@@ -434,8 +433,60 @@ class NeuralNetwork(object):
         return s + str(self.architecture[-1]) + 'out ( ' + self.output_layer_type + ' )'
 
 class NeuralNetworkClassifier(NeuralNetwork):
-    pass
+    """Create a feed forward neural network for multinomial regression (multiclass classification with mutually exclusive classes)"""
+    def __init__(self, architecture):
+        super(NeuralNetworkClassifer, self).__init__(architecture)
+
+        if architecture[-1]['activation'].owner.op != T.nnet.softmax:
+            print "Warning: activation function of output layer should be T.nnet.softmax for Classification."
+
+        self.y_pred = T.argmax( self.output, axis=1 )
+        self.output.name = 'Multinomial regression softmax output'
+        self.y_pred.name = 'Multinomial regression hard-assignment output' 
+
+        self.response  =  T.ivector('Mulinomial regression response variables (labels)')
+        self.loss      = -T.mean(T.log(self.output)[T.arange(self.response.shape[0]), self.response])
+        self.loss.name = 'Negative loglikelihood loss'
+        self.miss      =  T.mean(T.neq(self.y_pred, self.response))
+        self.miss.name = 'Misclassification error'
+
+    def load_training_set(self, input_path, response_path=None):
+        super(NeuralNetworkClassifer, self).load_training_set(input_path, response_path)
+        self._validate_set('training_set')
+    def load_validation_set(self, input_path, response_path=None):
+        super(NeuralNetworkClassifer, self).load_validation_set(input_path, response_path)
+        self._validate_set('validation_set')
+    def load_testing_set(self, input_path, response_path=None):
+        super(NeuralNetworkClassifer, self).load_testing_set(input_path, response_path)
+        self._validate_set('testing_set')
+    def _validate_set(self, set):
+        # We must cast the labels as integers
+        setattr(getattr(self, set), 'y', T.cast( getattr(self, set).y, 'int32'))
+        # And check that the reponse labels are contained in a 1d vector
+        assert getattr(self, set).y.ndim == 1, \
+        "Response variables should be contained in a one dimensional vector \
+        for classification and coded as unique integers per class label."
 
 class NeuralNetworkRegressor(NeuralNetwork):
-    pass
+    """Create a feed forward neural network for regression."""
+    def __init__(self, architecture):
+        super(NeuralNetworkRegressor, self).__init__(architecture)
 
+        self.response   = T.matrix('Regression response variable')
+        self.loss       = ((self.output-self.response)**2).mean() 
+        self.loss.name  = 'MSE loss'
+
+    def load_training_set(self, input_path, response_path=None):
+        super(NeuralNetworkClassifer, self).load_training_set(input_path, response_path)
+        self._validate_set('training_set')
+    def load_validation_set(self, input_path, response_path=None):
+        super(NeuralNetworkClassifer, self).load_validation_set(input_path, response_path)
+        self._validate_set('validation_set')
+    def load_testing_set(self, input_path, response_path=None):
+        super(NeuralNetworkClassifer, self).load_testing_set(input_path, response_path)
+        self._validate_set('testing_set')
+    def _validate_set(self, set):
+        assert getattr(self, set).y.ndim == 2, \
+        "Response variables should be contained in a two dimensional matrix \
+        for regression. If the response is 1D, response should be a matrix of \
+        with shape (n_examples, 1)"
