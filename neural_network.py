@@ -4,6 +4,8 @@ import theano.tensor as T
 from .layers import *
 from .shared_data_set import SharedDataSet 
 
+print "hello"
+
 class NeuralNetwork(object):
     """
     Parent class for creating a symbolic Feed forward neural network classifier or regressor.
