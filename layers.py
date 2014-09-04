@@ -134,7 +134,7 @@ class ConvolutionalLayer(object):
         The first string should specify the path to the npy file where the W matrix located.
         The second should specify the path to the npy file where the b vector is located.
         None instead of a string skips that param. For instance:
-        ['/weights.npy', None]
+        ['./weights.npy', None]
         Loads only the weight matrix and initializes the bias vector as normal.
         """
         assert weight_paths is None or ( weight_paths is not None and len(weight_paths)==2 ), "If weight paths is specified it must be a list of length 2."
@@ -183,7 +183,7 @@ class ConvolutionalLayer(object):
         self.output.name = 'Convolutional activation output' 
 
 class LpPoolingLayer(object):
-    def __init__(self, input, p=2, stride_shape=(2,2), window_shape=(2,2)):
+    def __init__(self, input, p=2, stride_shape=(2,2), window_shape=(2,2), avg=False):
        """
        input: symbolic tensor4 variable
        The shape should be (n_examples, n_channels, height, width)
@@ -193,15 +193,37 @@ class LpPoolingLayer(object):
 
        stride_shape: tuple (height, width)
        This determines the stride in both directions of the pooling operation.
+       *Important* for max pooling (p>=10), stride_shape is ignored.
 
        window_shape: tuple (height, width)
        This is the region over which each pooling takes place. If stride_shape==window_shape,
        pooling is taken over non-overlapping regions.
+
+       avg: bool
+       If true, we divide by np.prod(window_shape) before taking the pth root.
        """
        assert p >= 1, "p must be greater than or equal to 1."
+       self.p = p
+       self.stride_shape = stride_shape
+       self.window_shape = window_shape
+
        if p < 10:
-           window_shape += (channels_out, channels_in) + filter_shape
+           # We're basically doing the following:
+           # for each channel create a 3D volume dirac delta of
+           # shape (channels_in, window_shape[0], window_shape[1]).
+           # This ith 3D volume has a 2D matrix of all ones when
+           # i==j and matrics of zeros in all other channels.
+           # This is done for each channel creating a 4D filter set.
+           window = T.eye(input.shape[1], dtype=input.dtype)
+           window = window.dimshuffle(0, 1, 'x', 'x')
+           window = window.repeat(window_shape[0], axis=2).repeat(window_shape[1], axis=3)
+           window /= 1. if not avg else float(np.prod(window_shape))
+           print window.dtype
+           self.output = ( T.nnet.conv2d(input**p, window, subsample=stride_shape) )**(1./p)
        else: # use the max pooling op
+           self.output = T.signal.downsample.max_pool_2d(input, (window_shape))
+       self.output.name = "Lp Pooling output"
+
 
 
 
