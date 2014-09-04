@@ -59,12 +59,12 @@ class NeuralNetwork(object):
             # to the tensor4 shape. In particular, the input matrix is assumed to be
             # (n_examples, n_features) where n_features is flattened from the shape
             # (channels_in, height, width).
-            self.input = self.input.reshape(
+            self.input = self.input.reshape((
                 self.input.shape[0],
                 architecture[0][1]['channels_in'],
                 architecture[0][1]['filter_shape'][0],
                 architecture[0][1]['filter_shape'][1]
-            )
+            ))
 
         for arc in self.architecture:
             # Append the correct input variable to the arg dict.
@@ -74,7 +74,8 @@ class NeuralNetwork(object):
             # Create a new instance of current layer type with given args
             # and append it to the layer list.
             self.layers.append( globals()[LAYER_TYPES[arc[0]]](**arc[1]) )
-            self.params += self.layers[-1].params
+            if arc[0] != 'P':
+                self.params += self.layers[-1].params
 
         self.output = self.layers[-1].output
 

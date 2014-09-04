@@ -218,7 +218,6 @@ class LpPoolingLayer(object):
            window = window.dimshuffle(0, 1, 'x', 'x')
            window = window.repeat(window_shape[0], axis=2).repeat(window_shape[1], axis=3)
            window /= 1. if not avg else float(np.prod(window_shape))
-           print window.dtype
            self.output = ( T.nnet.conv2d(input**p, window, subsample=stride_shape) )**(1./p)
        else: # use the max pooling op
            self.output = T.signal.downsample.max_pool_2d(input, (window_shape))
