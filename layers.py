@@ -200,7 +200,7 @@ class LpPoolingLayer(object):
        """
        assert p >= 1, "p must be greater than or equal to 1."
        if p < 10:
-       
+           window_shape += (channels_out, channels_in) + filter_shape
        else: # use the max pooling op
 
 
