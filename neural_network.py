@@ -4,13 +4,11 @@ import theano.tensor as T
 from .layers import *
 from .shared_data_set import SharedDataSet 
 
-print "hello"
-
 class NeuralNetwork(object):
     """
     Parent class for creating a symbolic Feed forward neural network classifier or regressor.
     """
-    def __init__(self, architecture=None, layers=None, from_stats=None):
+    def __init__(self, architecture=None, layers=None, from_file=None):
         """
         architecture: list of tuples 
 
@@ -23,19 +21,19 @@ class NeuralNetwork(object):
         
         Example: 
             [('C', {'channel_in': 3, 'channel_out': 6, 'filter_shape': (5,5), 'activation': T.tanh}),
-             ('P', {'p': 2, 'stride_shape': (2,2)}),
+             ('P', {'p': 2, 'stride_shape': (2,2), 'window_shape': (2,2)}),
              ('F', {'n_in': 200, 'n_out': 10, 'activation': T.nnet.softmax})]
                  
         would describe a network with a convolution over 3 input channels with
         filters of size (5,5) and tanh activation followed by L2 pooling over (2,2)
         windows. Lastly, there is a fully connected layer with softmax output
-        for logisitic regression.
+        for multinomial regression.
 
         layers: list of layer objects
         Alternatively, one may build a network by creating each layer individually from
         the layers module and put them in a list sequentially.
 
-        from_stats: string
+        from_file: string (path)
         Lastly, one can rebuild a net object from the dictionary saved by the save_stats() function.
         Here, the path of the pickled dict should be provided.
         """
@@ -45,7 +43,7 @@ class NeuralNetwork(object):
                    "Invalid layer type key in architecture."
         elif layers is not None:
             pass
-        elif from_stats is not None:
+        elif from_file is not None:
             pass
         else:
             raise Exception('At least one input must be specified.')
@@ -56,17 +54,29 @@ class NeuralNetwork(object):
         self.layers             = []
         self.params             = []
 
+        if architecture[0][0] == 'C':
+            # If the first layer is convolutional, we have to reshape the input
+            # to the tensor4 shape. In particular, the input matrix is assumed to be
+            # (n_examples, n_features) where n_features is flattened from the shape
+            # (channels_in, height, width).
+            self.input = self.input.reshape(
+                self.input.shape[0],
+                architecture[0][1]['channels_in'],
+                architecture[0][1]['filter_shape'][0],
+                architecture[0][1]['filter_shape'][1]
+            )
+
         for arc in self.architecture:
             # Append the correct input variable to the arg dict.
             arc[1].update(
-                [('input', self.layer[-1].output)]
+                [('input', self.input if len(self.layers)==0 else self.layers[-1].output)]
             )
             # Create a new instance of current layer type with given args
             # and append it to the layer list.
-            self.layers.append( locals()[LAYER_TYPES[arc[0]]](**arc[1]) )
-            self.params.append( self.layer[-1].params )
+            self.layers.append( globals()[LAYER_TYPES[arc[0]]](**arc[1]) )
+            self.params += self.layers[-1].params
 
-        self.output = self.layer[-1].output
+        self.output = self.layers[-1].output
 
     def _load_data_set(self, input_path, response_path, name ):
         setattr(self, name, SharedDataSet(input_path=input_path, response_path=response_path))
@@ -245,11 +255,11 @@ class NeuralNetwork(object):
                 }
             )
 
-        has_miss = hasattr(self, miss)
+        has_miss = hasattr(self, 'miss')
         if has_miss:
             validation_cost_and_miss = theano.function(
                 inputs=[],
-                outputs=[cost,self.output_layer.miss],
+                outputs=[cost, self.miss],
                 givens={
                     self.input:     self.validation_set.x,
                     self.response:  self.validation_set.y
@@ -358,10 +368,11 @@ class NeuralNetwork(object):
         )
         self.testing_stats = dict()
         self.testing_stats['loss'] = test_loss()
-        if self.output_layer_type == 'LogisticRegression':
+
+        if hasattr(self, 'miss'):
             test_miss = theano.function( 
                 inputs=[],
-                outputs=self.output_layer.miss,
+                outputs=self.miss,
                 givens={
                     self.input:     self.testing_set.x,
                     self.response:  self.testing_set.y
@@ -423,23 +434,25 @@ class NeuralNetwork(object):
         return fmin_slsqp(func=f, x0=np.ones((P[0].shape[0],)).astype(np.float32), fprime=g, f_eqcons=constraint)
 
     def __str__(self):
-        s = str(self.n_layers) + ' layered MLP:\n'
-        s += str(self.architecture[0]) + ' in => '
-        for i in range(self.n_hidden_layers):
-            s += str(self.architecture[i+1]) + 'h '
-            if hasattr(self.activation[i], '__name__'):
-                s += '( ' + self.activation[i].__name__ + ' ) '
-            elif hasattr(self.activation[i], '__str__'):
-                s += '( ' + self.activation[i].__str__() + ' ) '
-            s += ' => '
-        return s + str(self.architecture[-1]) + 'out ( ' + self.output_layer_type + ' )'
+        return "TODO"
+        # s = str(self.n_layers) + ' layered MLP:\n'
+        # s += str(self.architecture[0]) + ' in => '
+        # for i in range(self.n_hidden_layers):
+        #     s += str(self.architecture[i+1]) + 'h '
+        #     if hasattr(self.activation[i], '__name__'):
+        #         s += '( ' + self.activation[i].__name__ + ' ) '
+        #     elif hasattr(self.activation[i], '__str__'):
+        #         s += '( ' + self.activation[i].__str__() + ' ) '
+        #     s += ' => '
+        # return s + str(self.architecture[-1]) + 'out ( ' + self.output_layer_type + ' )'
 
 class NeuralNetworkClassifier(NeuralNetwork):
     """Create a feed forward neural network for multinomial regression (multiclass classification with mutually exclusive classes)"""
-    def __init__(self, architecture):
-        super(NeuralNetworkClassifer, self).__init__(architecture)
+    def __init__(self, architecture=None, layers=None, from_file=None):
+        __doc__ = super(NeuralNetworkClassifier, self).__init__.__doc__
+        super(NeuralNetworkClassifier, self).__init__(architecture, layers, from_file)
 
-        if architecture[-1]['activation'].owner.op != T.nnet.softmax:
+        if architecture[-1][1]['activation'] != T.nnet.softmax:
             print "Warning: activation function of output layer should be T.nnet.softmax for Classification."
 
         self.y_pred = T.argmax( self.output, axis=1 )
@@ -453,13 +466,13 @@ class NeuralNetworkClassifier(NeuralNetwork):
         self.miss.name = 'Misclassification error'
 
     def load_training_set(self, input_path, response_path=None):
-        super(NeuralNetworkClassifer, self).load_training_set(input_path, response_path)
+        super(NeuralNetworkClassifier, self).load_training_set(input_path, response_path)
         self._validate_set('training_set')
     def load_validation_set(self, input_path, response_path=None):
-        super(NeuralNetworkClassifer, self).load_validation_set(input_path, response_path)
+        super(NeuralNetworkClassifier, self).load_validation_set(input_path, response_path)
         self._validate_set('validation_set')
     def load_testing_set(self, input_path, response_path=None):
-        super(NeuralNetworkClassifer, self).load_testing_set(input_path, response_path)
+        super(NeuralNetworkClassifier, self).load_testing_set(input_path, response_path)
         self._validate_set('testing_set')
     def _validate_set(self, set):
         # We must cast the labels as integers
@@ -479,13 +492,13 @@ class NeuralNetworkRegressor(NeuralNetwork):
         self.loss.name  = 'MSE loss'
 
     def load_training_set(self, input_path, response_path=None):
-        super(NeuralNetworkClassifer, self).load_training_set(input_path, response_path)
+        super(NeuralNetworkClassifier, self).load_training_set(input_path, response_path)
         self._validate_set('training_set')
     def load_validation_set(self, input_path, response_path=None):
-        super(NeuralNetworkClassifer, self).load_validation_set(input_path, response_path)
+        super(NeuralNetworkClassifier, self).load_validation_set(input_path, response_path)
         self._validate_set('validation_set')
     def load_testing_set(self, input_path, response_path=None):
-        super(NeuralNetworkClassifer, self).load_testing_set(input_path, response_path)
+        super(NeuralNetworkClassifier, self).load_testing_set(input_path, response_path)
         self._validate_set('testing_set')
     def _validate_set(self, set):
         assert getattr(self, set).y.ndim == 2, \
