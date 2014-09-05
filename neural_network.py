@@ -397,9 +397,9 @@ class NeuralNetwork(object):
         f=open(save_path,'wb')
         
         if hasattr(self,'training_stats') and hasattr(self,'testing_stats'):
-            cPickle.dump({'training_stats': self.training_stats, 'testing_stats': self.testing_stats, 'arc': self.architecture, 'act': self.activation}, f)
+            cPickle.dump({'training_stats': self.training_stats, 'testing_stats': self.testing_stats, 'arc': self.architecture}, f)
         else: # no testing stats
-            cPickle.dump({'training_stats': self.training_stats, 'arc': self.architecture, 'act': self.activation}, f)
+            cPickle.dump({'training_stats': self.training_stats, 'arc': self.architecture}, f)
         f.close()
 
     def activation_maximization(self, l, j):
