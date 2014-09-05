@@ -96,10 +96,11 @@ class FullyConnectedLayer(object):
 
 class ConvolutionalLayer(object):
     def __init__( self,
-                  input,
-                  channels_in,
-                  channels_out,
-                  filter_shape,
+                  input=None,
+                  channels_in=None,
+                  input_shape=None,
+                  channels_out=None,
+                  filter_shape=None,
                   activation=T.tanh,
                   rng=np.random.RandomState(),
                   weight_paths=None ):
@@ -114,6 +115,8 @@ class ConvolutionalLayer(object):
         
         channels_out:    int
         number of channels in the output. (number of "feature maps" learned)
+
+        input_shape: tuple (height, width)
         
         filter_shape:    tuple of ints (height, width).
         Resulting filters combine over input channels, so
