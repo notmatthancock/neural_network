@@ -93,6 +93,15 @@ class NeuralNetwork(object):
     def load_testing_set(self, input_path, response_path=None):
         self._load_data_set(input_path, response_path, 'testing_set')
 
+    def _unload_data_set(self, name):
+        delattr(self, name)
+    def unload_training_set(self):
+        self._unload_data_set('training_set')
+    def unload_validation_set(self):
+        self._unload_data_set('validation_set')
+    def unload_testing_set(self):
+        self._unload_data_set('testing_set')
+
     def train(   self,
                  learning_rate         = 0.1,
                  n_epochs              = 10,
