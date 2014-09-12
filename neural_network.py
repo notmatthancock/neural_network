@@ -215,7 +215,7 @@ class NeuralNetwork(object):
 
         print "... Compiling"
 
-        # Add an extra terms to the loss function (regularizers, etc...)
+        # Add any extra terms to the loss function (regularizers, etc...)
         cost = self.loss
         if L2_coef is not None:
             L2 = reduce(lambda a,b: a+b, map(T.sum, map(lambda x: x**2, self.params)))
@@ -339,7 +339,8 @@ class NeuralNetwork(object):
                     best_params[i] = self.params[i].get_value().copy()
 
             # Early stopping condition:
-            # If the variance in the validation curve has not changed significantly over the most recent variance window, then quit.
+            # If the variance in the validation curve has not changed significantly
+            # over the most recent variance window, then quit.
             if use_early_stopping and epoch > variance_window:
                 if np.var(loss_records[epoch-variance_window+1:epoch+1,0]) < variance_threshold:
                     print ("Variance threshold of validation record reached. Quitting.")
@@ -397,7 +398,7 @@ class NeuralNetwork(object):
 
     def save_stats(self, save_path=None, prefix=None):
         if save_path is None:
-            save_path = self.__str__().replace(' ', '').replace('\n',' ')+'---'+str(uuid.uuid4())+'.dat'
+            save_path = self.__str__().replace(' ', '').replace('\n',' ')+'---'+str(uuid.uuid4())+'.pkl'
         if prefix is not None:
             save_path = prefix+save_path
 
