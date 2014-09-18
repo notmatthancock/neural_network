@@ -7,3 +7,57 @@ Supervised classification or regression is done by instantiating a `NeuralNetwor
 ## Unsupervised Learning
 Unsupervised learning may be done by specifying the input and response data as the same for a `NeuralNetworkRegressor` model. This creates what's commmonly called an autoencoder.
 
+### Examples
+Import theano for activation functions.
+```
+import neural_network as nn
+import theano.tensor as T
+```
+
+Build the architecture next.
+
+For logistic Regression:
+```
+# Logistic regression:
+arc = [
+    ('F', dict(n_in=784, n_out=10, activation=T.nnet.softmax))
+]
+
+# One hidden layer fully connected
+arc = [
+    ('F', dict(n_in=784, n_out=392, activation=T.tanh))
+    ('F', dict(n_in=784, n_out=10, activation=T.nnet.softmax))
+]
+
+
+# One hidden layer fully connected
+arc = [
+    ('C', dict(n_in=784, n_out=392, activation=T.tanh))
+    ('F', dict(n_in=784, n_out=10, activation=T.nnet.softmax))
+]
+
+
+# Convolutional with max pooling
+arc = [
+    ('C', dict(channels_in=1, channels_out=5, input_shape=(28,28), filter_shape=(5,5))),
+    ('P', dict(p=100, stride_shape=(2,2), window_shape=(2,2))),
+    ('C', dict(channels_in=5, channels_out=50, filter_shape=(5,5))),
+    ('P', dict(p=100, stride_shape=(2,2), window_shape=(2,2))),
+    ('F', dict(n_in=800, n_out=100)),
+    ('F', dict(n_in=100, n_out=10, activation=T.nnet.softmax))
+]
+```
+
+After building the architecture, instantiate the network object, load relevant
+datasets, and train.
+
+```
+net = nn.NeuralNetworkClassifier(arc)
+
+net.load_training_set('training_inputs.npy', 'training_responses.npy')
+net.load_validation_set('validation_inputs.npy', 'validation_responses.npy')
+
+net.train(n_epochs=100, learning_rate=0.12, batch_size=1000)
+
+net.load_testing_set('testing_inputs.npy', 'testing_responses.npy')
+```
