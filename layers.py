@@ -187,44 +187,37 @@ class ConvolutionalLayer(object):
 
 class LpPoolingLayer(object):
     def __init__(self, input, p=2, stride_shape=(2,2), window_shape=(2,2), avg=False):
-       """
-       input: symbolic tensor4 variable
-       The shape should be (n_examples, n_channels, height, width)
-       
-       p: float >= 1
-       The "p" in the p norm. 2 is L2 pooling. If p >= 10, max-pooling is used.
-
-       stride_shape: tuple (height, width)
-       This determines the stride in both directions of the pooling operation.
-       *Important* for max pooling (p>=10), stride_shape is ignored.
-
-       window_shape: tuple (height, width)
-       This is the region over which each pooling takes place. If stride_shape==window_shape,
-       pooling is taken over non-overlapping regions.
-
-       avg: bool
-       If true, we divide by np.prod(window_shape) before taking the pth root.
-       """
-       assert p >= 1, "p must be greater than or equal to 1."
-       self.p = p
-       self.stride_shape = stride_shape
-       self.window_shape = window_shape
-
-       if p < 10:
-           # We're basically doing the following:
-           # for each channel create a 3D volume dirac delta of
-           # shape (channels_in, window_shape[0], window_shape[1]).
-           # This ith 3D volume has a 2D matrix of all ones when
-           # i==j and matrics of zeros in all other channels.
-           # This is done for each channel creating a 4D filter set.
-           window = T.eye(input.shape[1], dtype=input.dtype)
-           window = window.dimshuffle(0, 1, 'x', 'x')
-           window = window.repeat(window_shape[0], axis=2).repeat(window_shape[1], axis=3)
-           window /= 1. if not avg else float(np.prod(window_shape))
-           self.output = ( T.nnet.conv2d(input**p, window, subsample=stride_shape) )**(1./p)
-       else: # use the max pooling op
-           self.output = T.signal.downsample.max_pool_2d(input, (window_shape))
-       self.output.name = "Lp Pooling output"
+        """
+        input: symbolic tensor4 variable
+        The shape should be (n_examples, n_channels, height, width)
+        
+        p: float >= 1
+        The "p" in the p norm. 2 is L2 pooling. If p >= 10, max-pooling is used.
+ 
+        stride_shape: tuple (height, width)
+        This determines the stride in both directions of the pooling operation.
+        *Important* for max pooling (p>=10), stride_shape is ignored.
+ 
+        window_shape: tuple (height, width)
+        This is the region over which each pooling takes place. If stride_shape==window_shape,
+        pooling is taken over non-overlapping regions.
+ 
+        avg: bool
+        If true, we divide by np.prod(window_shape) before taking the pth root.
+        """
+        assert p >= 1, "p must be greater than or equal to 1."
+        self.p = p
+        self.stride_shape = stride_shape
+        self.window_shape = window_shape
+        
+        if p < 10:
+            print "Lp Pooling not implemented yet. Using Max-pooling instead."
+        if False:#p < 10:
+            # TODO: efficient Lp pooling
+            pass
+        else: # use the max pooling op
+            self.output = T.signal.downsample.max_pool_2d(input, (window_shape))
+        self.output.name = "Lp Pooling output"
 
 
 
