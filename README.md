@@ -29,14 +29,7 @@ arc = [
 ]
 
 
-# One hidden layer fully connected
-arc = [
-    ('C', dict(n_in=784, n_out=392, activation=T.tanh))
-    ('F', dict(n_in=784, n_out=10, activation=T.nnet.softmax))
-]
-
-
-# Convolutional with max pooling
+# Deep convolutional network with max pooling
 arc = [
     ('C', dict(channels_in=1, channels_out=5, input_shape=(28,28), filter_shape=(5,5))),
     ('P', dict(p=100, stride_shape=(2,2), window_shape=(2,2))),
@@ -59,4 +52,7 @@ net.load_validation_set('validation_inputs.npy', 'validation_responses.npy')
 net.train(n_epochs=100, learning_rate=0.12, batch_size=1000)
 
 net.load_testing_set('testing_inputs.npy', 'testing_responses.npy')
+net.test()
 ```
+
+Relevant statistics are stored in `net.training_stats` and `net.testing_stats` dictionaries after training and testing has been performed. 
