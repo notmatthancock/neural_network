@@ -16,7 +16,6 @@ import theano.tensor as T
 
 Build the architecture next.
 
-For logistic Regression:
 ```
 # Logistic regression:
 arc = [
