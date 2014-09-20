@@ -83,15 +83,16 @@ class NeuralNetwork(object):
                 self.params += self.layers[-1].params
 
         self.output = self.layers[-1].output
+        self.predict = theano.function([self.input], self.output, allow_input_downcast=True)
 
-    def _load_data_set(self, input_path, response_path, name ):
-        setattr(self, name, SharedDataSet(input_path=input_path, response_path=response_path))
-    def load_training_set(self, input_path, response_path=None):
-        self._load_data_set(input_path, response_path, 'training_set')
-    def load_validation_set(self, input_path, response_path=None):
-        self._load_data_set(input_path, response_path, 'validation_set')
-    def load_testing_set(self, input_path, response_path=None):
-        self._load_data_set(input_path, response_path, 'testing_set')
+    def _load_data_set(self, input, response, name ):
+        setattr(self, name, SharedDataSet(input=input, response=response))
+    def load_training_set(self, input, response=None):
+        self._load_data_set(input, response, 'training_set')
+    def load_validation_set(self, input, response=None):
+        self._load_data_set(input, response, 'validation_set')
+    def load_testing_set(self, input, response=None):
+        self._load_data_set(input, response, 'testing_set')
 
     def _unload_data_set(self, name):
         delattr(self, name)
@@ -481,14 +482,14 @@ class NeuralNetworkClassifier(NeuralNetwork):
         self.miss      =  T.mean(T.neq(self.y_pred, self.response))
         self.miss.name = 'Misclassification error'
 
-    def load_training_set(self, input_path, response_path=None):
-        super(NeuralNetworkClassifier, self).load_training_set(input_path, response_path)
+    def load_training_set(self, input, response=None):
+        super(NeuralNetworkClassifier, self).load_training_set(input, response)
         self._validate_set('training_set')
-    def load_validation_set(self, input_path, response_path=None):
-        super(NeuralNetworkClassifier, self).load_validation_set(input_path, response_path)
+    def load_validation_set(self, input, response=None):
+        super(NeuralNetworkClassifier, self).load_validation_set(input, response)
         self._validate_set('validation_set')
-    def load_testing_set(self, input_path, response_path=None):
-        super(NeuralNetworkClassifier, self).load_testing_set(input_path, response_path)
+    def load_testing_set(self, input, response=None):
+        super(NeuralNetworkClassifier, self).load_testing_set(input, response)
         self._validate_set('testing_set')
     def _validate_set(self, set):
         # We must cast the labels as integers
@@ -507,14 +508,14 @@ class NeuralNetworkRegressor(NeuralNetwork):
         self.loss       = ((self.output-self.response)**2).mean() 
         self.loss.name  = 'MSE loss'
 
-    def load_training_set(self, input_path, response_path=None):
-        super(NeuralNetworkClassifier, self).load_training_set(input_path, response_path)
+    def load_training_set(self, input, response=None):
+        super(NeuralNetworkClassifier, self).load_training_set(input, response)
         self._validate_set('training_set')
-    def load_validation_set(self, input_path, response_path=None):
-        super(NeuralNetworkClassifier, self).load_validation_set(input_path, response_path)
+    def load_validation_set(self, input, response=None):
+        super(NeuralNetworkClassifier, self).load_validation_set(input, response)
         self._validate_set('validation_set')
-    def load_testing_set(self, input_path, response_path=None):
-        super(NeuralNetworkClassifier, self).load_testing_set(input_path, response_path)
+    def load_testing_set(self, input, response=None):
+        super(NeuralNetworkClassifier, self).load_testing_set(input, response)
         self._validate_set('testing_set')
     def _validate_set(self, set):
         assert getattr(self, set).y.ndim == 2, \
