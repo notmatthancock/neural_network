@@ -197,7 +197,7 @@ class NeuralNetwork(object):
             assert act_sparse_coef is not None, \
                    "activation sparsity coefficient must be set"
             # check if list length matches
-            assert len(act_sparse_list) == len(self.architecture)-1
+            assert len(act_sparse_list) == self.n_layers-1
         #################
 
         print ("\nBeginning new trial. Params:")
@@ -227,7 +227,7 @@ class NeuralNetwork(object):
         if act_sparse_func is not None:
             for i in range(len(act_sparse_list)-1):
                 if act_sparse_list[i]:
-                    cost += act_sparse_coef*act_sparse_func(self.hidden_layer[i].output).mean()
+                    cost += act_sparse_coef*act_sparse_func(self.layers[i].output).mean()
             if act_sparse_list[-1]:
                 cost += act_sparse_coef*act_sparse_func(self.output).mean()
 
@@ -509,13 +509,13 @@ class NeuralNetworkRegressor(NeuralNetwork):
         self.loss.name  = 'MSE loss'
 
     def load_training_set(self, input, response=None):
-        super(NeuralNetworkClassifier, self).load_training_set(input, response)
+        super(NeuralNetworkRegressor, self).load_training_set(input, response)
         self._validate_set('training_set')
     def load_validation_set(self, input, response=None):
-        super(NeuralNetworkClassifier, self).load_validation_set(input, response)
+        super(NeuralNetworkRegressor, self).load_validation_set(input, response)
         self._validate_set('validation_set')
     def load_testing_set(self, input, response=None):
-        super(NeuralNetworkClassifier, self).load_testing_set(input, response)
+        super(NeuralNetworkRegressor, self).load_testing_set(input, response)
         self._validate_set('testing_set')
     def _validate_set(self, set):
         assert getattr(self, set).y.ndim == 2, \
