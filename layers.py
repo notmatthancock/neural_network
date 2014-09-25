@@ -17,8 +17,7 @@ class FullyConnectedLayer(object):
                   n_in,
                   n_out,
                   activation=T.tanh,
-                  rng=np.random.RandomState(),
-                  weight_paths=None ):
+                  rng=np.random.RandomState() ):
         """
         Construct a hidden layer of a neural network.
         
@@ -44,15 +43,7 @@ class FullyConnectedLayer(object):
 
         rng:      numpy.Random.RandomState
         random number generator for weight init
-
-        weight_paths: list of strings
-        The first string should specify the path to the npy file where the W matrix located.
-        The second should specify the path to the npy file where the b vector is located.
-        None instead of a string skips that param. For instance:
-        ['/weights.npy', None]
-        Loads only the weight matrix and initializes the bias vector as normal.
         """
-        assert weight_paths is None or ( weight_paths is not None and len(weight_paths)==2 ), "If weight paths is specified it must be a list of length 2."
         assert callable(activation), "activation must be callable"
 
         self.n_in   = n_in
@@ -65,27 +56,17 @@ class FullyConnectedLayer(object):
         self.arc_vars.pop('self')
 
         # set weights
-        if weight_paths is None or (weight_paths is not None and weight_paths[0] is None):
-            W_val = np.asarray(
-                rng.uniform(
-                    low = -np.sqrt(6.0 / (n_in + n_out)),
-                    high=  np.sqrt(6.0 / (n_in + n_out)),
-                    size=(n_in, n_out)
-                ).astype(theano.config.floatX)
-            )
-            if activation == theano.tensor.nnet.sigmoid:
-                W_val *= 4
-        else: # use path provided
-            W_val = np.load(weight_paths[0])
-            assert W_val.dtype == theano.config.floatX
-            assert W_val.shape == (n_in, n_out)
+        W_val = np.asarray(
+            rng.uniform(
+                low = -np.sqrt(6.0 / (n_in + n_out)),
+                high=  np.sqrt(6.0 / (n_in + n_out)),
+                size=(n_in, n_out)
+            ).astype(theano.config.floatX)
+        )
+        if activation == theano.tensor.nnet.sigmoid:
+            W_val *= 4
 
-        if weight_paths is None or (weight_paths is not None and weight_paths[1] is None):
-            b_val = np.zeros((n_out,), dtype=theano.config.floatX)
-        else:
-            b_val = np.load(weight_paths[1])
-            assert b_val.dtype == theano.config.floatX
-            assert b_val.shape == (n_out, )
+        b_val = np.zeros((n_out,), dtype=theano.config.floatX)
          
         self.W = theano.shared(W_val, name='W')
         self.b = theano.shared(b_val, name='b')
@@ -103,7 +84,7 @@ class ConvolutionalLayer(object):
                   filter_shape=None,
                   activation=T.tanh,
                   rng=np.random.RandomState(),
-                  weight_paths=None ):
+                  is_input=False ):
         """
         Construct a convolutional layer of a neural network.
         
@@ -132,22 +113,28 @@ class ConvolutionalLayer(object):
 
         rng:      numpy.Random.RandomState
         random number generator for weight init
-
-        weight_paths: list of strings
-        The first string should specify the path to the npy file where the W matrix located.
-        The second should specify the path to the npy file where the b vector is located.
-        None instead of a string skips that param. For instance:
-        ['./weights.npy', None]
-        Loads only the weight matrix and initializes the bias vector as normal.
         """
-        assert weight_paths is None or ( weight_paths is not None and len(weight_paths)==2 ), "If weight paths is specified it must be a list of length 2."
         assert callable(activation), "activation must be callable"
 
         self.channels_in  = channels_in
         self.channels_out = channels_out
         self.filter_shape = filter_shape
+        self.input_shape  = input_shape
         self.input  = input
-        layer_type = 'C'
+        self.layer_type = 'C'
+
+        # This is a bit of a workaround to manage input examples as flattened vectors,
+        # while the conv op expects 4D.
+        if is_input:
+            self.input_reshape = self.input.reshape((
+                self.input.shape[0],
+                self.channels_in,
+                self.input_shape[0],
+                self.input_shape[1]
+            ))
+        else:
+            self.input_reshape = self.input
+        self.input_reshape.name = self.input.name if not is_input else "%s reshape"%self.input.name
 
         # for building from layers
         self.arc_vars = locals()
@@ -155,34 +142,24 @@ class ConvolutionalLayer(object):
 
         # set weights
         weight_shape = (channels_out, channels_in) + filter_shape
-        if weight_paths is None or (weight_paths is not None and weight_paths[0] is None):
-            W_val = np.asarray(
-                rng.uniform(
-                    low  = -np.sqrt(1.0 / np.prod(filter_shape) / channels_in ),
-                    high =  np.sqrt(1.0 / np.prod(filter_shape) / channels_in ),
-                    size = weight_shape
-                ).astype(theano.config.floatX)
-            )
-            if activation == theano.tensor.nnet.sigmoid:
-                W_val *= 4
-        else: # use path provided
-            W_val = np.load(weight_paths[0])
-            assert W_val.dtype == theano.config.floatX
-            assert W_val.shape == weight_shape 
+        W_val = np.asarray(
+            rng.uniform(
+                low  = -np.sqrt(1.0 / np.prod(filter_shape) / channels_in ),
+                high =  np.sqrt(1.0 / np.prod(filter_shape) / channels_in ),
+                size = weight_shape
+            ).astype(theano.config.floatX)
+        )
+        if activation == theano.tensor.nnet.sigmoid:
+            W_val *= 4
 
-        if weight_paths is None or (weight_paths is not None and weight_paths[1] is None):
-            b_val = np.zeros((channels_out,), dtype=theano.config.floatX)
-        else:
-            b_val = np.load(weight_paths[1])
-            assert b_val.dtype == theano.config.floatX
-            assert b_val.shape == (channels_out, )
+        b_val = np.zeros((channels_out,), dtype=theano.config.floatX)
          
         self.W = theano.shared(W_val, name='W')
         self.b = theano.shared(b_val, name='b')
         self.params = [self.W, self.b]
 
         # convolve, add bias to axis of output channels, apply activation.
-        self.output = activation( T.nnet.conv2d(self.input, self.W) + self.b.dimshuffle('x', 0, 'x', 'x') ) 
+        self.output = activation( T.nnet.conv2d(self.input_reshape, self.W) + self.b.dimshuffle('x', 0, 'x', 'x') ) 
         self.output.name = 'Convolutional activation output' 
 
 class LpPoolingLayer(object):
@@ -218,9 +195,3 @@ class LpPoolingLayer(object):
         else: # use the max pooling op
             self.output = T.signal.downsample.max_pool_2d(input, (window_shape))
         self.output.name = "Lp Pooling output"
-
-
-
-
-
-

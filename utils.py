@@ -1,4 +1,7 @@
 import numpy as np
+import theano
+from theano import tensor as T
+
 
 def image_from_weights(W, height_in, width_in, height_out, width_out):
     """
@@ -27,43 +30,46 @@ def image_from_weights(W, height_in, width_in, height_out, width_out):
 
     return (I - I.min()) / (I.max() - I.min())
 
-def activation_maximization(P,l,j,act_list):
+def activation_maximization(input, output, direction, x0, bounds=(0., 1.)):
     """
-    activation_maximization finds a vector from the input space which maximizes the activation
-    of the jth neuron in layer l of a network.
-    *Important*: l and j start at zero 
+    input: symbolic input that was used to construct output
 
-    P: list of ndarrays
-    This should be from or formatted as the para attribute from the NeuralNetwork save_stats()
-    dictionary.
+    output: symbolic output function of some network layer
 
-    l: int
+    direction: direction in which to be maximized.
 
-    j: int
+    x0: initial guess for optimization routine
 
-    act_list: list of ops
+    Returns the x value such that dot(f(x), n) is maximal.
+    
+    Example:
+
+    result = activation_maximization(net.input, net.layers[0].output, eye(input_shape)[:,0], rand(input_shape))
+
+    This would find the input, x, which maximizes the response of the first unit in the first
+    hidden layer.
     """
-    assert l < len(P)/2, "you've entered a layer greater than how many exist"
-    assert j <= P[2*l].shape[1], "you've enter a neuron greater than how many exist"
-    assert len(act_list) == len(P)/2
-    
-    from scipy.optimize import fmin_slsqp
-    import theano
-    input = theano.tensor.vector('input')
-    for k in range(len(act_list)-1):
-        output = act_list[k](theano.tensor.dot((input if k==0 else output),P[2*k]) + P[2*k+1])
-    ft = theano.function(inputs=[input], outputs=output)
+    if abs(np.linalg.norm(direction)-1) > 1e-6:
+        direction /= np.linalg.norm(direction)
+    direction = theano.shared(direction.astype(input.dtype), name='direction')
 
-    gr = theano.grad(cost=output[j-1], wrt=input)
-    gt = theano.function(inputs=[input], outputs=gr)
+    cost_ = -theano.tensor.dot(output.flatten(), direction)
+    cost_.name = 'cost'
+    cost  = theano.function([input], cost_, allow_input_downcast=True)
+    grad_ = theano.grad(cost=cost_, wrt=input)
+    grad_.name = 'grad'
+    grad  = theano.function([input], grad_, allow_input_downcast=True)
 
-    f = lambda x: ft(x.astype(np.float32))
-    g = lambda x: gt(x.astype(np.float32))
-    
-    constraint = lambda x: np.dot(x,x) - 1
-    return fmin_slsqp(func=f, x0=np.ones((P[0].shape[0],)).astype(np.float32), fprime=g, f_eqcons=constraint)
+    x0 = x0.astype(input.dtype)
 
+    from scipy.optimize import fmin_l_bfgs_b as fmin
+    bounds = [bounds for i in range(x0.shape[0])]
+    result = fmin(
+        func    = lambda x: np.asscalar(cost(x[np.newaxis,:].astype(np.float32))),
+        x0      = x0,
+        fprime  = lambda x: grad(x[np.newaxis,:].astype(np.float32)).flatten().astype(np.float64),
+        bounds  = bounds,
+        disp    = 1
+    )
 
-
-
-
+    return result

@@ -8,7 +8,7 @@ class NeuralNetwork(object):
     """
     Parent class for creating a symbolic Feed forward neural network classifier or regressor.
     """
-    def __init__(self, architecture=None, layers=None, from_file=None):
+    def __init__(self, architecture):
         """
         architecture: list of tuples 
 
@@ -28,25 +28,10 @@ class NeuralNetwork(object):
         filters of size (5,5) and tanh activation followed by L2 pooling over (2,2)
         windows. Lastly, there is a fully connected layer with softmax output
         for multinomial regression.
-
-        layers: list of layer objects
-        Alternatively, one may build a network by creating each layer individually from
-        the layers module and put them in a list sequentially.
-
-        from_file: string (path)
-        Lastly, one can rebuild a net object from the dictionary saved by the save_stats() function.
-        Here, the path of the pickled dict should be provided.
         """
         # one liner for checking each key corresponds to a valid type
-        if architecture is not None:
-            assert sum(map(lambda l: l in LAYER_TYPES.keys(), [a[0] for a in architecture])) == len(architecture), \
-                   "Invalid layer type key in architecture."
-        elif layers is not None:
-            pass
-        elif from_file is not None:
-            pass
-        else:
-            raise Exception('At least one input must be specified.')
+        assert sum(map(lambda l: l in LAYER_TYPES.keys(), [a[0] for a in architecture])) == len(architecture), \
+               "Invalid layer type key in architecture."
 
         self.input              = T.matrix('Network input')
         self.architecture       = architecture
@@ -57,21 +42,22 @@ class NeuralNetwork(object):
         for arc in self.architecture:
             # Append the correct input variable to the arg dict.
             if len(self.layers)==0:
-                if arc[0] == 'C':
-                    # If the first layer is convolutional, we have to reshape the input
-                    # to the tensor4 shape. In particular, the input matrix is assumed to be
-                    # (n_examples, n_features) where n_features is flattened from the shape
-                    # (channels_in, height, width).
-                    arc[1].update([('input',
-                        self.input.reshape((
-                            self.input.shape[0],
-                            architecture[0][1]['channels_in'],
-                            architecture[0][1]['input_shape'][0],
-                            architecture[0][1]['input_shape'][1]
-                        ))
-                    )])
-                else:
-                    arc[1].update([('input', self.input)])
+                #if arc[0] == 'C':
+                #    # If the first layer is convolutional, we have to reshape the input
+                #    # to the tensor4 shape. In particular, the input matrix is assumed to be
+                #    # (n_examples, n_features) where n_features is flattened from the shape
+                #    # (channels_in, height, width).
+                #    arc[1].update([('input',
+                #        self.input.reshape((
+                #            self.input.shape[0],
+                #            architecture[0][1]['channels_in'],
+                #            architecture[0][1]['input_shape'][0],
+                #            architecture[0][1]['input_shape'][1]
+                #        ))
+                #    )])
+                #else:
+                arc[1].update([('input', self.input)])
+                if arc[0] == 'C': arc[1].update([('is_input', True)])
             else:
                 # If not the first layer, the input is the output of previous.
                 arc[1].update([('input', self.layers[-1].output)])
@@ -84,6 +70,13 @@ class NeuralNetwork(object):
 
         self.output = self.layers[-1].output
         self.predict = theano.function([self.input], self.output, allow_input_downcast=True)
+
+    def set_params_from_list(self, P):
+        """
+        Set the parameters of the network using parameters stored in list, P.
+        """
+        for i in range(len(P)):
+            self.params[i].set_value( P[i] )
 
     def _load_data_set(self, input, response, name ):
         setattr(self, name, SharedDataSet(input=input, response=response))
@@ -413,43 +406,6 @@ class NeuralNetwork(object):
             cPickle.dump({'training_stats': self.training_stats, 'arc': self.architecture}, f)
         f.close()
 
-    def activation_maximization(self, l, j):
-        """
-        Perform a constrained optimization over the input space of the network to find the input
-        that maximizes neuron j in layer l. Note below for important information regarding indexes.
-
-        P: list of ndarrays
-        This should be from or formatted as the para attribute from the NeuralNetwork save_stats()
-        dictionary.
-
-        l: int
-        l must be in range(1, self.n_layers+1) as 0 is the input layer. 
-
-        j: int
-        j must be in range(1, self.hidden_layer[l-1]+1) as 0 is the bias unit
-
-        act_list: list of ops
-        """
-        assert l < len(P)/2, "you've entered a layer greater than how many exist"
-        assert j <= P[2*l].shape[1], "you've enter a neuron greater than how many exist"
-        assert len(act_list) == len(P)/2
-        
-        from scipy.optimize import fmin_slsqp
-        import theano
-        input = theano.tensor.vector('input')
-        for k in range(len(act_list)-1):
-            output = act_list[k](theano.tensor.dot((input if k==0 else output),P[2*k]) + P[2*k+1])
-        ft = theano.function(inputs=[input], outputs=output)
-
-        gr = theano.grad(cost=output[j-1], wrt=input)
-        gt = theano.function(inputs=[input], outputs=gr)
-
-        f = lambda x: ft(x.astype(np.float32))
-        g = lambda x: gt(x.astype(np.float32))
-        
-        constraint = lambda x: np.dot(x,x) - 1
-        return fmin_slsqp(func=f, x0=np.ones((P[0].shape[0],)).astype(np.float32), fprime=g, f_eqcons=constraint)
-
     def __str__(self):
         return "TODO"
         # s = str(self.n_layers) + ' layered MLP:\n'
@@ -465,9 +421,9 @@ class NeuralNetwork(object):
 
 class NeuralNetworkClassifier(NeuralNetwork):
     """Create a feed forward neural network for multinomial regression (multiclass classification with mutually exclusive classes)"""
-    def __init__(self, architecture=None, layers=None, from_file=None):
+    def __init__(self, architecture):
         __doc__ = super(NeuralNetworkClassifier, self).__init__.__doc__
-        super(NeuralNetworkClassifier, self).__init__(architecture, layers, from_file)
+        super(NeuralNetworkClassifier, self).__init__(architecture)
 
         if architecture[-1][1]['activation'] != T.nnet.softmax:
             print "Warning: activation function of output layer should be T.nnet.softmax for Classification."
