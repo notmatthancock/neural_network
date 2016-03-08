@@ -102,69 +102,39 @@ class NeuralNetwork(object):
                  batch_size            = None,
                  L1_coef               = None,
                  L2_coef               = None,
-                 momentum              = None,
-                 rand_seed             = None,
                  start_rand            = False,
-                 use_early_stopping    = False,
-                 variance_window       = 20,
-                 variance_threshold    = 1e-3,
-                 bootstrap             = False,
+                 random_state          = None,
+                 class_weight          = None,
                  callback              = None
         ):
         """
-        Train the network for a number of epochs (or use early variance stopping). Training and validation sets must be loaded by calling load_..._set(...)
+        Train the network for a number of epochs. Training and validation sets must be loaded by calling load_..._set(...)
 
         step_size: float
         step size of gradient descent
 
         n_epochs: int
-        maximum number of epochs to cycle through gradient descent
+        Maximum number of epochs to cycle through gradient descent
 
         batch_size: int
-        size of batches used for grad descent updates. If this number does not divide the size of the
+        Size of batches used for grad descent updates. If this number does not divide the size of the
         training set exactly, then the remainder is not utilized (assuming bootstrap is not used). If None,
         the size of the training_set is used.
 
         L1_coef: float
-        amount of L1 regularization added weights 
+        Amount of L1 regularization added weights 
 
         L2_coef: float
-        amount of L2 regularization added weights
+        Amount of L2 regularization added weights
 
-        momentum: float
-        size of momentum coefficient. should be < 1
-
-        rand_seed: int
-        seed for the random number generator if start_rand is True. default None uses random rand_seed
+        random_state: numpy random state, default None
 
         start_rand: bool
         If true, the network parameters are set to random values before initializing. False (default) uses the current network param values as starting points.
 
-        use_early_stopping: bool
-        if True, training will stop (at an epoch < n_epoch possibly) according to the variance of the
-        the log loss of the training set for the last variance_window epochs
-
-        variance_window: int
-        see use_early_stopping.
-
-        variance_treshold: float
-        the tolerance that determines when the earliness of early stopping. I.e. if var_window=20
-        and var_tol=1e-3, at each epoch, we look at the variance of the loss from the last 20 epochs
-        on the training set. If the variance is less than var_tol, we exit.
-
-        bootstrap: bool
-        if True, bootstrap (sub)samples are used for each minibatch of grad descent. Note that this method is slower.
+        class_weight: list, default None
+        default None weights classes equally. Otherwise, the classes are weighted in the cost function by the class weight specified.
         """
-        # print params
-        opts = locals()
-        p = "\n"
-        for key in opts:
-            if opts[key] is None or opts[key] is False: continue
-            if (key == 'variance_window' or key == 'variance_threshold') and opts['use_early_stopping'] is False: continue
-            p += key+": "+str(opts[key])+"\n"
-        opts.pop('self')
-        
-
         #################
         # input checking
         assert hasattr(self,'training_set') and hasattr(self,'validation_set'), \
@@ -172,78 +142,80 @@ class NeuralNetwork(object):
                NeuralNetwork object's load_..._set(...) methods."
         assert batch_size <= self.training_set.N, \
                "Batch size cannot be greater than size of training set."
+
+        classes = np.unique(self.training_set.y.eval())
+        if class_weight is not None:
+            assert len(class_weight) == len(classes), "class_weight list length doesn't match number of classes."
+            class_weight = theano.shared(np.array(class_weight), name='class_weight')
+        else:
+            class_weight = np.ones(len(classes))
+        sample_weight = T.fvector('sample_weight')
         #################
 
-        print ("\nBeginning new trial. Params:")
-        print ( p )
+        print ("\nBeginning new trial.")
 
-        batch_size          = self.training_set.N if batch_size is None else batch_size
-        n_train_batches     = int(np.floor(self.training_set.N / float(batch_size)))
+        batch_size      = self.training_set.N if batch_size is None else batch_size
+        n_train_batches = int(np.floor(self.training_set.N / float(batch_size)))
+        index = T.lscalar('index')
 
-        if not bootstrap: index   = T.lscalar('index')
-        else:             indexes = T.ivector('indexes')
-
+        if random_state is None:
+            random_state = np.random.RandomState()
+            
         if start_rand:
             print "... Randomizing network parameters"
             for param in self.params:
-                param.set_value( (np.random.random( param.get_value().shape )-0.5).astype( param.dtype ))
+                param.set_value(random_state.randn( param.get_value().shape ).astype( param.dtype ))
 
-        print "... Compiling"
+        print ("... Compiling")
 
-        # Add any extra terms to the loss function (regularizers, etc...)
-        cost = self.loss
+        if isinstance(self, NeuralNetworkClassifier):
+            self.loss      = -T.log(self.output)[T.arange(self.response.shape[0]), self.response]
+            for c in enumerate(classes):
+                self.loss[T.where(T.eq(self.response, c))[0]] *= class_weight[c]
+            self.loss      = T.mean(self.loss)
+            self.miss      = T.mean(T.neq(self.y_pred, self.response))
+            self.miss.name = 'Misclassification error'
+        elif isinstance(self, NeuralNetworkRegressor):
+            self.loss       = ((self.output-self.response)**2).mean() 
+
+        # Add regularizers to loss function.
         if L2_coef is not None:
-            L2 = reduce(lambda a,b: a+b, map(T.sum, map(lambda x: x**2, self.params)))
-            cost += L2_coef*L2
+            L2 = T.sum(self.params[0]**2)
+            for j in range(2,len(self.params)):
+                if j % 2 == 0: # This ignores intercept terms.
+                    L2 += T.sum(self.params[j]**2)
+            self.loss += L2*L2_coef
         if L1_coef is not None:
-            L1 = reduce(lambda a,b: a+b, map(T.sum, map(T.abs_, self.params)))
-            cost += L1_coef*L1
+            L1 = T.sum(T.abs_(self.params[0]))
+            for j in range(2,len(self.params)):
+                if j % 2 == 0: # This ignores intercept terms.
+                    L1 += T.sum(T.abs_(self.params[j]))
+            self.loss += L1*L1_coef
 
-        # compute symbolic gradient of the cost with respect to params
+        # Compute symbolic gradient of the cost with respect to params
         gparams = []
-        oparams = [] # old params for momentum
         for param in self.params:
-            gparams.append( T.grad(cost=cost, wrt=param) )
-            if momentum is not None:
-                oparams.append(theano.shared(np.zeros(param.get_value().shape, dtype=param.dtype)))
+            gparams.append( T.grad(cost=self.loss, wrt=param) )
         
         updates = []
-        for i in xrange(len(self.params)):
-            if momentum is not None:
-                updates.append((self.params[i],
-                                self.params[i] - step_size*(gparams[i] + momentum*oparams[i])))
-            else:
-                updates.append((self.params[i], self.params[i] - step_size*gparams[i]))
-        if momentum is not None:
-            for i in xrange(len(self.params)):
-                updates.append((oparams[i], gparams[i]))
+        for i in range(len(self.params)):
+            updates.append((self.params[i], self.params[i] - step_size*gparams[i]))
 
-        if bootstrap:
-            train_model = theano.function(
-                inputs=[indexes],
-                outputs=cost,
-                updates=updates,
-                givens={
-                    self.input:    self.training.x[indexes],
-                    self.response: self.training.y[indexes]
-                }
-            )
-        else:
-            train_model = theano.function(
-                inputs=[index],
-                outputs=cost,
-                updates=updates,
-                givens={
-                    self.input:     self.training_set.x[index*batch_size:(index+1)*batch_size],
-                    self.response:  self.training_set.y[index*batch_size:(index+1)*batch_size]
-                }
-            )
+        train_model = theano.function(
+            inputs=[index],
+            outputs=self.loss,
+            updates=updates,
+            givens={
+                self.input:     self.training_set.x[index*batch_size:(index+1)*batch_size],
+                self.response:  self.training_set.y[index*batch_size:(index+1)*batch_size]
+            }
+        )
 
         has_miss = hasattr(self, 'miss')
         if has_miss:
             validation_cost_and_miss = theano.function(
                 inputs=[],
-                outputs=[cost, self.miss],
+                outputs=[self.loss, self.miss],
                 givens={
                     self.input:     self.validation_set.x,
                     self.response:  self.validation_set.y
@@ -252,7 +224,7 @@ class NeuralNetwork(object):
         else:
             validation_cost = theano.function(
                 inputs=[],
-                outputs=cost,
+                outputs=self.loss,
                 givens={
                     self.input:     self.validation_set.x,
                     self.response:  self.validation_set.y
@@ -276,13 +248,8 @@ class NeuralNetwork(object):
             else:
                 va_cost = validation_cost()
             
-            if bootstrap:
-                for minibatch_index in xrange(n_train_batches):
-                    indices = np.random.randint(0, self.training_set.N, size=batch_size).astype(np.int32)
-                    tr_cost += train_model(indices) / n_train_batches
-            else:
-                for minibatch_index in xrange(n_train_batches):
-                    tr_cost += train_model(minibatch_index) / n_train_batches
+            for minibatch_index in xrange(n_train_batches):
+                tr_cost += train_model(minibatch_index) / n_train_batches
 
             # record losses for epoch
             loss_records[epoch,0], loss_records[epoch,1] = tr_cost, va_cost
@@ -304,17 +271,8 @@ class NeuralNetwork(object):
                 # record new best
                 best_va = (va_miss if has_miss else va_cost) 
                 best_epoch = epoch
-                for i in xrange(len(self.params)):
+                for i in range(len(self.params)):
                     best_params[i] = self.params[i].get_value().copy()
-
-            # Early stopping condition:
-            # If the variance in the validation curve has not changed significantly
-            # over the most recent variance window, then quit.
-            if use_early_stopping and epoch > variance_window:
-                if np.var(loss_records[epoch-variance_window+1:epoch+1,0]) < variance_threshold:
-                    print ("Variance threshold of validation record reached. Quitting.")
-                    epoch +=1
-                    break
 
             # call the call back
             if callback is not None: callback(locals())
@@ -324,16 +282,14 @@ class NeuralNetwork(object):
 
         for i in range(len(self.params)):
             self.params[i].set_value( best_params[i] )
-        loss_records = loss_records[:epoch,:]
 
         self.training_stats = {
-            'time': end_time-start_time,
-            'rate': epoch/(end_time-start_time),
-            'loss': loss_records,
-            'para': best_params,
-            'cost': cost, 
-            'opts': opts,
-            'epoch':best_epoch
+            'time':       end_time-start_time,
+            'rate':       epoch/(end_time-start_time),
+            'loss':       loss_records,
+            'parameters': best_params,
+            'cost':       cost, 
+            'epoch':      best_epoch
         }
 
         print ("\n\n... Training finished")
@@ -399,6 +355,7 @@ class NeuralNetworkClassifier(NeuralNetwork):
     def __init__(self, architecture):
         __doc__ = super(NeuralNetworkClassifier, self).__init__.__doc__
         super(NeuralNetworkClassifier, self).__init__(architecture)
+        self.response  = T.ivector('Multinomial regression response variables (labels)')
 
         if architecture[-1][1]['activation'] != T.nnet.softmax:
             print "Warning: activation function of output layer should be T.nnet.softmax for Classification."
@@ -406,12 +363,6 @@ class NeuralNetworkClassifier(NeuralNetwork):
         self.y_pred = T.argmax( self.output, axis=1 )
         self.output.name = 'Multinomial regression softmax output'
         self.y_pred.name = 'Multinomial regression hard-assignment output' 
-
-        self.response  =  T.ivector('Mulinomial regression response variables (labels)')
-        self.loss      = -T.mean(T.log(self.output)[T.arange(self.response.shape[0]), self.response])
-        self.loss.name = 'Negative loglikelihood loss'
-        self.miss      =  T.mean(T.neq(self.y_pred, self.response))
-        self.miss.name = 'Misclassification error'
 
     def load_training_set(self, input, response=None):
         super(NeuralNetworkClassifier, self).load_training_set(input, response)
@@ -434,10 +385,7 @@ class NeuralNetworkRegressor(NeuralNetwork):
     """Create a feed forward neural network for regression."""
     def __init__(self, architecture):
         super(NeuralNetworkRegressor, self).__init__(architecture)
-
         self.response   = T.matrix('Regression response variable')
-        self.loss       = ((self.output-self.response)**2).mean() 
-        self.loss.name  = 'MSE loss'
 
     def load_training_set(self, input, response=None):
         super(NeuralNetworkRegressor, self).load_training_set(input, response)

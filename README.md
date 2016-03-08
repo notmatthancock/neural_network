@@ -29,7 +29,7 @@ arc = [
 ]
 
 
-# Deep convolutional network with max pooling
+# Convolutional network with max pooling
 arc = [
     ('C', dict(channels_in=1, channels_out=5, input_shape=(28,28), filter_shape=(5,5))),
     ('P', dict(p=100, stride_shape=(2,2), window_shape=(2,2))),
