@@ -48,7 +48,7 @@ class NeuralNetwork(object):
 
         for arc in self.architecture:
             # Add the random_state to the argument list
-            arc[1].update([('random_state', random_state)])
+            arc[1].update([('random_state', self.random_state)])
             # Append the correct input variable to the arg dict.
             if len(self.layers)==0:
                 #if arc[0] == 'C':
@@ -186,7 +186,7 @@ class NeuralNetwork(object):
         if isinstance(self, NeuralNetworkClassifier):
             self.loss      = -T.log(self.output)[T.arange(self.response.shape[0]), self.response]
             self.loss      = T.dot(self.loss, sample_weight) / sample_weight.shape[0]
-            self.loss.name = "Negative log-likelihood loss"
+        #   self.loss.name = "Negative log-likelihood loss"
             self.miss      = T.mean(T.neq(self.y_pred, self.response))
             self.miss.name = 'Misclassification error'
         elif isinstance(self, NeuralNetworkRegressor):
@@ -199,14 +199,14 @@ class NeuralNetwork(object):
                 if j % 2 == 0: # This ignores intercept terms.
                     L2 += T.sum(self.params[j]**2)
             self.loss += L2*L2_coef
-            self.loss.name += " L2 regularization"
+        #   self.loss.name += " L2 regularization"
         if L1_coef is not None:
             L1 = T.sum(T.abs_(self.params[0]))
             for j in range(2,len(self.params)):
                 if j % 2 == 0: # This ignores intercept terms.
                     L1 += T.sum(T.abs_(self.params[j]))
             self.loss += L1*L1_coef
-            self.loss.name += " L1 regularization"
+        #   self.loss.name += " L1 regularization"
 
         # Compute symbolic gradient of the cost with respect to params
         gparams = []
