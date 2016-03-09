@@ -17,7 +17,7 @@ class FullyConnectedLayer(object):
                   n_in,
                   n_out,
                   activation=T.tanh,
-                  rng=np.random.RandomState() ):
+                  random_state=np.random.RandomState() ):
         """
         Construct a hidden layer of a neural network.
         
@@ -41,7 +41,7 @@ class FullyConnectedLayer(object):
         T.nnet.softmax  (use this for output layer for logistic regression)
         lambda x: x     (use this for output layer of linear regression)
 
-        rng:      numpy.Random.RandomState
+        random_state:      numpy.Random.RandomState
         random number generator for weight init
         """
         assert callable(activation), "activation must be callable"
@@ -57,7 +57,7 @@ class FullyConnectedLayer(object):
 
         # set weights
         W_val = np.asarray(
-            rng.uniform(
+            random_state.uniform(
                 low = -np.sqrt(6.0 / (n_in + n_out)),
                 high=  np.sqrt(6.0 / (n_in + n_out)),
                 size=(n_in, n_out)
@@ -83,7 +83,7 @@ class ConvolutionalLayer(object):
                   channels_out=None,
                   filter_shape=None,
                   activation=T.tanh,
-                  rng=np.random.RandomState(),
+                  random_state=np.random.RandomState(),
                   is_input=False ):
         """
         Construct a convolutional layer of a neural network.
@@ -111,7 +111,7 @@ class ConvolutionalLayer(object):
         T.nnet.softmax  (use this for output layer for logistic regression)
         lambda x: x     (use this for output layer of linear regression)
 
-        rng:      numpy.Random.RandomState
+        random_state:      numpy.Random.RandomState
         random number generator for weight init
         """
         assert callable(activation), "activation must be callable"
@@ -143,7 +143,7 @@ class ConvolutionalLayer(object):
         # set weights
         weight_shape = (channels_out, channels_in) + filter_shape
         W_val = np.asarray(
-            rng.uniform(
+            random_state.uniform(
                 low  = -np.sqrt(1.0 / np.prod(filter_shape) / channels_in ),
                 high =  np.sqrt(1.0 / np.prod(filter_shape) / channels_in ),
                 size = weight_shape

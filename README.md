@@ -4,9 +4,6 @@ A flexible neural network class for creating networks with arbitrary feedfoward 
 ## Supervised Learning
 Supervised classification or regression is done by instantiating a `NeuralNetworkClassifier` or `NeuralNetworkRegressor` object respectively. Classification assumes classes are mutually exclusive and uses the negative log-likelihood of the multinomial regression model as a loss function. Regression uses mean-squared error as a loss.
 
-## Unsupervised Learning
-Unsupervised learning may be done by specifying the input and response data as the same for a `NeuralNetworkRegressor` model. This creates what's commmonly called an autoencoder.
-
 ### Examples
 Import theano for activation functions.
 ```
@@ -56,3 +53,6 @@ net.test()
 ```
 
 Relevant statistics are stored in `net.training_stats` and `net.testing_stats` dictionaries after training and testing has been performed. 
+
+## Unsupervised Learning
+Unsupervised learning may be done by specifying the input and response data as the same for a `NeuralNetworkRegressor` model. This creates what's commmonly called an autoencoder.

@@ -8,9 +8,11 @@ class NeuralNetwork(object):
     """
     Parent class for creating a symbolic Feed forward neural network classifier or regressor.
     """
-    def __init__(self, architecture):
+    def __init__(self, architecture, random_state=None):
         """
         architecture: list of tuples 
+        
+        random_state: numpy random state, default None
 
         Each item is of the form: (char, dict) which specifies architecture
         of each layer. The first item in each is one of LAYER_TYPES.keys()
@@ -29,7 +31,7 @@ class NeuralNetwork(object):
         windows. Lastly, there is a fully connected layer with softmax output
         for multinomial regression.
         """
-        # one liner for checking each key corresponds to a valid type
+        # Ugly one liner for checking each key corresponds to a valid type
         assert sum(map(lambda l: l in LAYER_TYPES.keys(), [a[0] for a in architecture])) == len(architecture), \
                "Invalid layer type key in architecture."
 
@@ -39,7 +41,14 @@ class NeuralNetwork(object):
         self.layers             = []
         self.params             = []
 
+        if random_state is None:
+            self.random_state = np.random.RandomState()
+        else:
+            self.random_state = random_state
+
         for arc in self.architecture:
+            # Add the random_state to the argument list
+            arc[1].update([('random_state', random_state)])
             # Append the correct input variable to the arg dict.
             if len(self.layers)==0:
                 #if arc[0] == 'C':
@@ -102,9 +111,8 @@ class NeuralNetwork(object):
                  batch_size            = None,
                  L1_coef               = None,
                  L2_coef               = None,
-                 start_rand            = False,
-                 random_state          = None,
                  class_weight          = None,
+                 start_rand            = False,
                  callback              = None
         ):
         """
@@ -127,52 +135,58 @@ class NeuralNetwork(object):
         L2_coef: float
         Amount of L2 regularization added weights
 
-        random_state: numpy random state, default None
-
         start_rand: bool
         If true, the network parameters are set to random values before initializing. False (default) uses the current network param values as starting points.
 
         class_weight: list, default None
         default None weights classes equally. Otherwise, the classes are weighted in the cost function by the class weight specified.
         """
-        #################
-        # input checking
+        # Input checking.
         assert hasattr(self,'training_set') and hasattr(self,'validation_set'), \
                "Testing or validation set not present. You must load both via the \
                NeuralNetwork object's load_..._set(...) methods."
         assert batch_size <= self.training_set.N, \
                "Batch size cannot be greater than size of training set."
 
-        classes = np.unique(self.training_set.y.eval())
+        # Class weights.
+        ytr = self.training_set.y.eval()
+        yva = self.validation_set.y.eval()
+        classes = np.unique(ytr)
         if class_weight is not None:
-            assert len(class_weight) == len(classes), "class_weight list length doesn't match number of classes."
-            class_weight = theano.shared(np.array(class_weight), name='class_weight')
+            assert len(class_weight) == len(classes), \
+            "class_weight list length doesn't match number of classes."
         else:
             class_weight = np.ones(len(classes))
+        # Symbolic sample weight vector to use in the general case.
         sample_weight = T.fvector('sample_weight')
-        #################
+        # Shared variable sample weight.
+        tr_sample_weight = theano.shared(
+            np.array([class_weight[y] for y in ytr]).astype(np.float32),
+            name='tr_sample_weight'
+        )
+        # Shared variable validation weight.
+        va_sample_weight = theano.shared(
+            np.array([class_weight[y] for y in yva]).astype(np.float32),
+            name='va_sample_weight'
+        )
 
-        print ("\nBeginning new trial.")
+        print("Beginning new trial.")
 
         batch_size      = self.training_set.N if batch_size is None else batch_size
         n_train_batches = int(np.floor(self.training_set.N / float(batch_size)))
         index = T.lscalar('index')
 
-        if random_state is None:
-            random_state = np.random.RandomState()
-            
         if start_rand:
-            print "... Randomizing network parameters"
+            print("... Randomizing network parameters")
             for param in self.params:
-                param.set_value(random_state.randn( param.get_value().shape ).astype( param.dtype ))
+                param.set_value(self.random_state.randn( param.get_value().shape ).astype( param.dtype ))
 
-        print ("... Compiling")
+        print("... Compiling")
 
         if isinstance(self, NeuralNetworkClassifier):
             self.loss      = -T.log(self.output)[T.arange(self.response.shape[0]), self.response]
-            for c in enumerate(classes):
-                self.loss[T.where(T.eq(self.response, c))[0]] *= class_weight[c]
-            self.loss      = T.mean(self.loss)
+            self.loss      = T.dot(self.loss, sample_weight) / sample_weight.shape[0]
+            self.loss.name = "Negative log-likelihood loss"
             self.miss      = T.mean(T.neq(self.y_pred, self.response))
             self.miss.name = 'Misclassification error'
         elif isinstance(self, NeuralNetworkRegressor):
@@ -185,12 +199,14 @@ class NeuralNetwork(object):
                 if j % 2 == 0: # This ignores intercept terms.
                     L2 += T.sum(self.params[j]**2)
             self.loss += L2*L2_coef
+            self.loss.name += " L2 regularization"
         if L1_coef is not None:
             L1 = T.sum(T.abs_(self.params[0]))
             for j in range(2,len(self.params)):
                 if j % 2 == 0: # This ignores intercept terms.
                     L1 += T.sum(T.abs_(self.params[j]))
             self.loss += L1*L1_coef
+            self.loss.name += " L1 regularization"
 
         # Compute symbolic gradient of the cost with respect to params
         gparams = []
@@ -206,8 +222,9 @@ class NeuralNetwork(object):
             outputs=self.loss,
             updates=updates,
             givens={
-                self.input:     self.training_set.x[index*batch_size:(index+1)*batch_size],
-                self.response:  self.training_set.y[index*batch_size:(index+1)*batch_size]
+                self.input:    self.training_set.x[index*batch_size:(index+1)*batch_size],
+                self.response: self.training_set.y[index*batch_size:(index+1)*batch_size],
+                sample_weight: tr_sample_weight[index*batch_size:(index+1)*batch_size]
             }
         )
 
@@ -217,8 +234,9 @@ class NeuralNetwork(object):
                 inputs=[],
                 outputs=[self.loss, self.miss],
                 givens={
-                    self.input:     self.validation_set.x,
-                    self.response:  self.validation_set.y
+                    self.input:    self.validation_set.x,
+                    self.response: self.validation_set.y,
+                    sample_weight: va_sample_weight
                 }
             )
         else:
@@ -227,11 +245,12 @@ class NeuralNetwork(object):
                 outputs=self.loss,
                 givens={
                     self.input:     self.validation_set.x,
-                    self.response:  self.validation_set.y
+                    self.response:  self.validation_set.y,
+                    sample_weight:  va_sample_weight
                 }
             )
 
-        print ("... Beginning training\n")
+        print("... Beginning training\n")
         
         # setup variables before train loop
         start_time = time.clock()
@@ -288,7 +307,7 @@ class NeuralNetwork(object):
             'rate':       epoch/(end_time-start_time),
             'loss':       loss_records,
             'parameters': best_params,
-            'cost':       cost, 
+#            'cost':       cost, ?????
             'epoch':      best_epoch
         }
 
@@ -352,9 +371,9 @@ class NeuralNetwork(object):
 
 class NeuralNetworkClassifier(NeuralNetwork):
     """Create a feed forward neural network for multinomial regression (multiclass classification with mutually exclusive classes)"""
-    def __init__(self, architecture):
+    def __init__(self, architecture, random_state=None):
         __doc__ = super(NeuralNetworkClassifier, self).__init__.__doc__
-        super(NeuralNetworkClassifier, self).__init__(architecture)
+        super(NeuralNetworkClassifier, self).__init__(architecture, random_state=random_state)
         self.response  = T.ivector('Multinomial regression response variables (labels)')
 
         if architecture[-1][1]['activation'] != T.nnet.softmax:
@@ -383,8 +402,8 @@ class NeuralNetworkClassifier(NeuralNetwork):
 
 class NeuralNetworkRegressor(NeuralNetwork):
     """Create a feed forward neural network for regression."""
-    def __init__(self, architecture):
-        super(NeuralNetworkRegressor, self).__init__(architecture)
+    def __init__(self, architecture, random_state=None):
+        super(NeuralNetworkRegressor, self).__init__(architecture, random_state=random_state)
         self.response   = T.matrix('Regression response variable')
 
     def load_training_set(self, input, response=None):
